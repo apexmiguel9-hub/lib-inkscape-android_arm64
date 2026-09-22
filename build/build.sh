@@ -148,7 +148,10 @@ EOF
 
 # ---------------------------------------------------------------- harvest
 harvest() { # harvest <lib>  mueve $STG/<lib> -> $ROOT/<lib> (atomico) y reubica .pc
-  local name="$1" src="$STG/$name" dst="$ROOT/$name" tmp="$ROOT/.harvest-$name"
+  # en dos lineas: bash expande TODAS las palabras del 'local' antes de
+  # ejecutarlo, asi que $name en la misma linea veria el scope exterior
+  local name="$1"
+  local src="$STG/$name" dst="$ROOT/$name" tmp="$ROOT/.harvest-$name"
   [[ -d "$src" ]] || { echo "ERROR: harvest: $src no existe" >&2; exit 1; }
   rm -rf "$dst" "$tmp"
   mkdir -p "$tmp"
