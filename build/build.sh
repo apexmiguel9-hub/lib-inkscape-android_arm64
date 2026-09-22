@@ -387,7 +387,14 @@ build_glib() {
 
 build_libxkbcommon() {
   # GTK4 la exige (deps oficiales); x11 off porque exigiria libX11
-  # (enable-x11 construye la lib xkbcommon-x11); datos xkb = runtime
+  # (enable-x11 construye la lib xkbcommon-x11); datos xkb = runtime.
+  # LDFLAGS += -lc++ -lm: meson.build:661 auto-detecta icu-uc (required:false)
+  # y NUESTRO icu-uc.pc (tier1) lo activa => test-keysyms enlaza libicuuc.a
+  # (C++) con driver C (clang, sin -lc++ automatico) y sin libm (modf/pow/log).
+  # La lib src/ NO usa ICU (solo test/keysym.c via #if HAVE_ICU) => el extra
+  # solo afecta a los binarios de este proyecto; refresh_env recalcula
+  # LDFLAGS por lib, asi que no se arrastra a nadie mas.
+  export LDFLAGS="$LDFLAGS -lc++ -lm"
   meson_build libxkbcommon "$(extract "$(fetch "$U_LIBXKBCOMMON")")" \
     -Denable-tools=false -Denable-x11=false -Denable-wayland=false
 }
