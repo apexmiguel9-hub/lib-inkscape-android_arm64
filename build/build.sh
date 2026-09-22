@@ -383,6 +383,17 @@ build_glib() {
     -Dtests=false -Dinstalled_tests=false -Dman=false -Ddocumentation=false \
     -Dnls=disabled -Dintrospection=disabled \
     -Dselinux=disabled -Dlibmount=disabled
+
+  # Los .pc de glib declaran variables-tools (glib_genmarshal, glib_mkenums,
+  # glib_compile_resources, gdbus_codegen...) con ruta a $prefix/bin: harvest()
+  # no cosecha bin/ y ademas serian binarios aarch64. gdk-pixbuf/pango/gtk4 las
+  # ejecutan en el HOST (error classico: "tool variable ... erroneous value /
+  # This is a distributor issue"). Reapuntar a /usr/bin (libglib2.0-dev-bin +
+  # libglib2.0-bin del workflow); la salida de genmarshal y el formateo
+  # gresource son estables (API 2.32), tools 2.80 -> lib 2.88 sin problema.
+  sed -i -E \
+    's@^([a-z_0-9]+)=.*/bin/(glib-[a-z-]+|gdbus-codegen)$@\1=/usr/bin/\2@' \
+    "$ROOT/glib/lib/pkgconfig/"*.pc
 }
 
 build_libxkbcommon() {
