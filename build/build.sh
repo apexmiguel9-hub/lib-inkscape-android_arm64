@@ -413,10 +413,26 @@ build_libxkbcommon() {
 build_gdk_pixbuf() {
   # builtin_loaders=all => TODO estatico: sin .so ni loaders.cache en runtime
   # (mata el riesgo README4); png/jpeg de blender por pc
-  meson_build gdk-pixbuf "$(extract "$(fetch "$U_GDK_PIXBUF")")" \
+  local src
+  src="$(extract "$(fetch "$U_GDK_PIXBUF")")"
+  # (1) loaders_deps (png/jpeg) cuelga SOLO de los mods staticpixbufloader-*;
+  #     gdkpixbuf_dep no lo arrastra => los tools (csource/pixdata) y todo
+  #     consumidor estatico (gtk4, inkscape) enlazan la tabla builtin de
+  #     io-png/io-jpeg SIN -lpng16 -ljpeg => undefined png_*. Upstream no lo
+  #     ve: en desktop los loaders son .so dinamicos. Unica linea
+  #     'dependencies: gdk_pixbuf_deps,' de gdk-pixbuf/meson.build
+  #     (pixops/meson.build es otro fichero, sin png: intacto).
+  sed -i 's@^  dependencies: gdk_pixbuf_deps,$@  dependencies: gdk_pixbuf_deps + loaders_deps,@' \
+    "$src/gdk-pixbuf/meson.build"
+  meson_build gdk-pixbuf "$src" \
     -Dbuiltin_loaders=all -Dintrospection=disabled \
     -Dgtk_doc=false -Ddocs=false -Dman=false \
     -Dtests=false -Dinstalled_tests=false
+  # (2) el .pc generado: png/jpeg/z en Libs PUBLICO (nunca Libs.private:
+  #     meson y pkg_check_modules de inkscape consultan sin --static) para que
+  #     gtk4/inkscape arrastren el cierre de io-png/io-jpeg en sus .a.
+  sed -i -E 's@^(Libs:.*-lgdk_pixbuf-2.0)@\1 -lpng16 -ljpeg -lz -lm@' \
+    "$ROOT/gdk-pixbuf/lib/pkgconfig/gdk-pixbuf-2.0.pc"
 }
 
 build_cairo() {
