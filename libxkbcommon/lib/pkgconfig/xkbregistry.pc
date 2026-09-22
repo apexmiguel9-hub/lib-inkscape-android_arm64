@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: xkbregistry
+Description: XKB API to query available rules, models, layouts, variants and options
+Version: 1.7.0
+Requires: libxml-2.0
+Libs: -L${libdir} -lxkbregistry
+Cflags: -I${includedir}
