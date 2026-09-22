@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/gsl
+libdir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/gsl/lib
+includedir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/gsl/include
+GSL_CBLAS_LIB=-lgslcblas
+
+Name: GSL
+Description: GNU Scientific Library
+Version: 2.8
+Libs: -L/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/gsl/lib -lgsl ${GSL_CBLAS_LIB} -lm -lm 
+Cflags: -I/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/gsl/include
