@@ -9,10 +9,10 @@ dtdsdir=${datadir}/glib-2.0/dtds
 giomoduledir=${libdir}/gio/modules
 gio=${bindir}/gio
 gio_querymodules=${bindir}/gio-querymodules
-glib_compile_schemas=${bindir}/glib-compile-schemas
-glib_compile_resources=${bindir}/glib-compile-resources
+glib_compile_schemas=/usr/bin/glib-compile-schemas
+glib_compile_resources=/usr/bin/glib-compile-resources
 gdbus=${bindir}/gdbus
-gdbus_codegen=${bindir}/gdbus-codegen
+gdbus_codegen=/usr/bin/gdbus-codegen
 gresource=${bindir}/gresource
 gsettings=${bindir}/gsettings
 
