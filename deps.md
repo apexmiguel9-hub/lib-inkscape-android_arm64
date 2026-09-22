@@ -29,7 +29,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | glib | 2.88.0 | <https://download.gnome.org/sources/glib/2.88/glib-2.88.0.tar.xz> | meson; necesita pcre2/libffi/iconv/gettext del tier1 |
 | cairo | 1.18.6 | <https://cairographics.org/releases/cairo-1.18.6.tar.xz> | gtk4 4.22.5 exige `cairo >= 1.18.2` (1.18.0 peta en su setup); sha256 `1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4`; 1.18.6 elimino `malloc-stats.c`; pixman + freetype + png + zlib |
 | gdk-pixbuf | 2.42.12 | <https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz> | loaders (riesgo 4 del README) |
-| fontconfig | 2.17.1 | <https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.17.1/fontconfig-2.17.1.tar.xz> | pango 1.58 exige `fontconfig >= 2.17.0`; el release dir oficial se paró en 2.16 (2.15/2.16 siguen ahí); sha256 `9f5cae93f4fffc1fbc05ae99cdfc708cd60dfd6612ffc0512827025c026fa541`; sentinel `freetype_req = '>= 21.0.15'` sigue = shim 21.0.15 |
+| fontconfig | 2.17.1 | <https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.17.1/fontconfig-2.17.1.tar.xz> | pango 1.58 exige `fontconfig >= 2.17.0`; el release dir oficial se paró en 2.16 (2.15/2.16 siguen ahí); sha256 `9f5cae93f4fffc1fbc05ae99cdfc708cd60dfd6612ffc0512827025c026fa541`; sentinel `freetype_req = '>= 21.0.15'` lo cumple el shim freetype2 26.2.20 |
 | pango | 1.58.0 | <https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz> | par estables: dirs 1.54-1.58, `1.90` es dev |
 | graphene | 1.10.8 | <https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz> | meson, minúscula |
 | tiff | 4.7.2 | <https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz> | **subió del tier3: gtk4 4.22.5 exige `libtiff-4` incondicional** (meson.build:484, sin opcion para apagarlo); Inkscape no lo usa directo; sha256 `672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a`; CMake, codecs solo jpeg+zlib |
@@ -52,7 +52,7 @@ Toda la pila mm es **meson** en estas versiones ⇒ no hace falta `mm-common`/au
 | libjpeg | 2.1.3 | `include/jpeglib.h` plano |
 | libwebp | 1.6.0 | `include/webp/…` |
 | openjpeg | 2.5.3 | `include/openjpeg.h` plano |
-| freetype | 2.13.3 | `include/freetype2/` y **`FT_CONFIG_OPTION_SYSTEM_ZLIB`** ⇒ `.pc` con `-lz` |
+| freetype | 2.13.3 | `include/freetype2/` y **`FT_CONFIG_OPTION_SYSTEM_ZLIB`** ⇒ `.pc` con `-lz`; Version del `.pc` = **26.2.20** (esquema `version_info 26:2:20`, no la versión real) — **cairo exige `>= 23.0.17`** en su meson (con un pin 21.0.15 apagaba `CAIRO_HAS_FT` en silencio y petaba el enlace de `libgtk-4.so`); fontconfig exige `>= 21.0.15` y ambos quedan cubiertos |
 | harfbuzz | 10.0.1 | `include/harfbuzz/hb.h` (+ `libharfbuzz-subset.a`) |
 | fribidi | 1.0.12 | `include/fribidi/fribidi.h` |
 | libxml2 | 2.14.6 | `include/libxml2/libxml/parser.h` |

@@ -43,17 +43,22 @@ pc libopenjp2  openjpeg  2.5.3   "-lopenjp2"
 # --- texto ---
 # freetype: layout include/freetype2/ (ft2build.h confirmado), zlib del sistema
 # (FT_CONFIG_OPTION_SYSTEM_ZLIB definido) → -lz obligatorio.
-# Version 21.0.15 (el real es 2.13.3): fontconfig 2.15 meson.build:22 exige
-# '>= 21.0.15' por pkg-config — sentinel imposible que en escritorio redirige
-# al metodo cmake, pero en nuestro cross ese metodo no existe y nos dejaba
-# fuera. Solo lo leen comparadores '>=', sin techo (cairo/pango: >= 2.6).
+# Version 26.2.20 = version_info '26:2:20' real de freetype 2.13.3 (ft_version
+# = tr : . en builds/unix) — OJO: es el esquema del .pc, NO la version real.
+# cairo 1.18.6 meson.build:9 exige '>= 23.0.17' (= freetype 2.10 en esquema
+# .pc): con el pin anterior 21.0.15 (que lei mal como si fuera '>= 2.6')
+# rechazaba freetype_dep y apagaba CAIRO_HAS_FT en silencio => libcairo.a sin
+# cairo_ft_* y peticion al enlazar libgtk-4.so (run #18). fontconfig 2.17.1:30
+# pide '>= 21.0.15' y cairo '>= 23.0.17' → 26.2.20 cumple ambos; pango/gtk4 no
+# pinnean freetype2 (barrido) y todos los lectores son comparadores '>='
+# sin techo, asi que subir la version es seguro.
 # Requires libbrotlidec: deps.md oficial = freetype -> brotli (WOFF2); el
 # linker exigia BrotliDecoderDecompress al enlazar fc-* (auditoria nm:
 # freetype usa zlib(4)+brotli(1)). Nombres '-static' = como los compila Blender.
 pc libbrotlicommon brotli 1.0.9  "-lbrotlicommon-static"
 pc libbrotlidec    brotli 1.0.9  "-lbrotlidec-static -lbrotlicommon-static"
 pc libbrotlienc    brotli 1.0.9  "-lbrotlienc-static -lbrotlicommon-static"
-pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2" "libbrotlidec"
+pc freetype2   freetype  26.2.20 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2" "libbrotlidec"
 # harfbuzz -> freetype(27 simbolos FT_*) segun deps.md + auditoria nm.
 # Cflags-extra: layout ANIDADO include/harfbuzz/hb.h pero el consumo es
 # <hb.h> (pango-coverage.h:28 e inkscape) => -I al subdir, igual que el

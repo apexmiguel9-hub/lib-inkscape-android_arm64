@@ -375,7 +375,7 @@ build_fontconfig() {
   # cache-build OFF: por defecto EJECUTA fc-cache en install (imposible cross)
   # 2.17.1: pango 1.58 exige fontconfig >= 2.17.0 (con 2.15 peta en
   # pango/meson.build:295). Flags verificados 1:1 contra el meson.options
-  # real de 2.17.1; sentinel freetype2 '>= 21.0.15' sigue = shim 21.0.15.
+  # real de 2.17.1; sentinel freetype2 '>= 21.0.15' lo cumple el shim 26.2.20.
   meson_build fontconfig "$(extract "$(fetch "$U_FONTCONFIG")")" \
     -Ddoc=disabled -Dnls=disabled -Dtests=disabled -Dcache-build=disabled
   # 2.17 movio freetype2 a Requires.private (2.15 lo tenia PUBLICO con
