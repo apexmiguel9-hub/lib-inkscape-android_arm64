@@ -228,11 +228,18 @@ cmake_build() { # cmake_build <nombre> <srcdir> [opts cmake...]
 meson_build() { # meson_build <nombre> <srcdir> [opts meson...]
   local name="$1" src="$2"; shift 2
   rm -rf "$WORK/build-$name"
+  # nofallback: que NINGUN proyecto vendee subprojects en silencio (fontconfig
+  # se colo con freetype2). Si falta un .pc, peta aqui y lo arreglamos de raiz.
   meson setup "$WORK/build-$name" "$src" \
     --cross-file "$WORK/cross.ini" \
     --prefix="$STG/$name" --libdir=lib \
     --default-library=static --buildtype=release \
-    "$@"
+    --wrap-mode=nofallback \
+    "$@" || {
+      echo "=== meson setup de '$name' fallo; tail de meson-log.txt ===" >&2
+      tail -80 "$WORK/build-$name/meson-logs/meson-log.txt" 2>/dev/null >&2 || true
+      exit 1
+    }
   meson install -C "$WORK/build-$name"
   harvest "$name"
 }
