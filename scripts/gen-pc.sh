@@ -59,6 +59,12 @@ pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/free
 # <hb.h> (pango-coverage.h:28 e inkscape) => -I al subdir, igual que el
 # harfbuzz.pc upstream. Sin esto: 'hb.h file not found' (pango run #12).
 pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz" "-I\${prefix}/include/harfbuzz" "freetype2"
+# harfbuzz-subset: gtk4/meson.build:469 lo exige INCONDICIONAL (sin
+# required:) => harfbuzz-subset.pc + libharfbuzz-subset.a (verificado en
+# Blender). Libs autocontenido '-lharfbuzz-subset -lharfbuzz' (orden de
+# enlace estatico subset->core garantizado sin depender del dedup de meson;
+# los -l repetidos son inocuos: precedente -lintl repetido en enlaces reales).
+pc harfbuzz-subset harfbuzz 10.0.1 "-lharfbuzz-subset -lharfbuzz" "-I\${prefix}/include/harfbuzz"
 # fribidi: mismo caso, anidado include/fribidi/ y pango incluye <fribidi.h>
 # (upstream fribidi.pc tambien -I al subdir); habria petado justo tras hb.
 pc fribidi     fribidi   1.0.12  "-lfribidi" "-I\${prefix}/include/fribidi"

@@ -59,7 +59,7 @@ U_FONTCONFIG="https://gitlab.freedesktop.org/api/v4/projects/890/packages/generi
 U_GLIB="https://download.gnome.org/sources/glib/2.88/glib-2.88.0.tar.xz"
 U_LIBXKBCOMMON="https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz"
 U_GDK_PIXBUF="https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz"
-U_CAIRO="https://cairographics.org/releases/cairo-1.18.0.tar.xz"
+U_CAIRO="https://cairographics.org/releases/cairo-1.18.6.tar.xz"
 U_PANGO="https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz"
 U_GRAPHENE="https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz"
 U_GTK4="https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz"
@@ -450,20 +450,14 @@ build_gdk_pixbuf() {
 build_cairo() {
   # sin flags de backend: xlib/xcb no encontrados (aislamiento pc) => solo
   # ft/png/fontconfig activos
-  local src
-  src="$(extract "$(fetch "$U_CAIRO")")"
-  # (1) tests=disabled: mata perf/test/pdiff/etc (679 targets -> ~250); solo
-  #     necesitamos libcairo*/.pc. boilerplate/gobject/script NO cuelgan de
-  #     tests y siguen.
-  # (2) util/meson.build:45 compila libmalloc-stats si hay execinfo.h. El del
-  #     sysroot del NDK EXISTE (has_header: YES) pero con los decls detras de
-  #     un gate de API>31 => include ok, backtrace_symbols no declarado =>
-  #     -Werror=implicit-function-declaration en malloc-stats.c:120. Bionic
-  #     nunca tuvo backtrace. Nadie referencia libmallocstats en todo cairo
-  #     (grep total verificado) => objetivo muerto: se apaga con `and false`.
-  sed -i "s@^if conf.get('CAIRO_HAS_DLSYM', 0) == 1 and cc.has_header('execinfo.h')@& and false # android: objetivo muerto, sin backtrace en bionic@" \
-    "$src/util/meson.build"
-  meson_build cairo "$src" \
+  # 1.18.6 (no 1.18.0): gtk4 4.22.5 exige cairo >= 1.18.2 (gtk/meson.build:25
+  # cairo_req; error en :462) y cairo-gobject.pc arrastra el campo Version.
+  # sha256 1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4.
+  # tests=disabled (sigue feature en 1.18.6): mata perf/test/pdiff/etc; solo
+  # necesitamos libcairo*/.pc. boilerplate/gobject/script NO cuelgan de tests.
+  # NOTA: el parche previo de libmalloc-stats ya NO hace falta: upstream
+  # elimino util/malloc-stats.c en 1.18.x (verificado en el tree real).
+  meson_build cairo "$(extract "$(fetch "$U_CAIRO")")" \
     -Dtests=disabled
 }
 
