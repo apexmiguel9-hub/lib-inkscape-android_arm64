@@ -561,6 +561,7 @@ build_one() {
     cairo)              build_cairo ;;
     pango)              build_pango ;;
     graphene)           build_graphene ;;
+    tiff)               build_tiff ;;
     gtk4)               build_gtk4 ;;
     sigc++)             build_sigcpp ;;
     glibmm)             build_glibmm ;;
