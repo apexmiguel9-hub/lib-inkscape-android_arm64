@@ -91,12 +91,41 @@ jobs:
             autoconf automake libtool gettext autopoint \
             bison flex python3 curl ca-certificates git-lfs
 
-      - name: Setup NDK
-        id: ndk
-        uses: nttld/setup-ndk@v1
+      # nttld/setup-ndk con local-cache guardó una granja de symlinks hacia
+      # /opt/hostedtoolcache que cuelga en otros VMs (clang -> No such file).
+      # Descarga directa del zip oficial + verificacion de clang ejecutable.
+      - name: Restore NDK cache
+        id: cache-ndk
+        uses: actions/cache/restore@v4
         with:
-          ndk-version: ${{ inputs.ndk }}
-          local-cache: true
+          path: ~/android-ndk-${{ inputs.ndk }}
+          key: ndk-${{ inputs.ndk }}-v1
+
+      - name: Setup NDK (zip oficial de Google)
+        id: ndk
+        run: |
+          set -o pipefail
+          NDK="${{ inputs.ndk }}"
+          NDK_DIR="$HOME/android-ndk-$NDK"
+          CLANG="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+          if ! test -x "$CLANG"; then
+            echo "descargando android-ndk-$NDK-linux.zip ..."
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/ndk.zip" \
+              "https://dl.google.com/android/repository/android-ndk-$NDK-linux.zip"
+            unzip -q "$RUNNER_TEMP/ndk.zip" -d "$HOME"
+            rm -f "$RUNNER_TEMP/ndk.zip"
+          fi
+          # -x sigue symlinks: falla si el clang esta colgado
+          test -x "$CLANG" || { echo "ERROR: clang no ejecutable en $CLANG"; exit 1; }
+          "$CLANG" --version | head -1
+          echo "ndk-path=$NDK_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Save NDK cache
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/android-ndk-${{ inputs.ndk }}
+          key: ndk-${{ inputs.ndk }}-v1
 
       - name: Generate pkg-config overlay (libs de Blender no traen .pc)
         run: bash scripts/gen-pc.sh "$PWD/.blender-libs" "$PWD/pc-overlay"
