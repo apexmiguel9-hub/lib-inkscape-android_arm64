@@ -133,6 +133,8 @@ refresh_env() { # recalcula include/lib/pkgconfig contra lo ya cosechado + blend
     export PKG_CONFIG_LIBDIR="${pcs[*]}"
   fi
   unset PKG_CONFIG_PATH 2>/dev/null || true
+  # por si acaso: sysroot anteponido a rutas absolutas de .pc = rutas muertas
+  unset PKG_CONFIG_SYSROOT_DIR 2>/dev/null || true
 }
 
 cmake_prefix_path() {
@@ -158,7 +160,10 @@ bits = '64'
 endian = 'little'
 
 [properties]
-sys_root = '$TC/sysroot'
+# SIN sys_root: meson lo usa como PKG_CONFIG_SYSROOT_DIR y anteponga el sysroot
+# a los -I/-L ABSOLUTOS de nuestros .pc -> rutas inventadas
+# (<sysroot>/home/runner/...) => 'ft2build.h not found' en fontconfig (y le pasaria
+# a glib con zlib/pcre2). El sysroot real del NDK ya lo lleva el clang solo.
 needs_exe_wrapper = true
 EOF
 }
