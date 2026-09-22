@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+
+targets=android
+gtk_binary_version=4.0.0
+gtk_host=aarch64-android
+
+Name: GTK
+Description: GTK AT-SPI accessibility support
+Version: 4.22.5
+Requires: gtk4
+Cflags: -I${includedir}
