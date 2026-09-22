@@ -180,7 +180,11 @@ at_build() { # at_build <nombre> <srcdir> [opts de configure...]
   local name="$1" src="$2"; shift 2
   [[ -x "$src/configure" ]] || { echo "ERROR: $src no tiene configure" >&2; exit 1; }
   ( cd "$src" && ./configure --host="$TRIPLE" --prefix="$STG/$name" \
-      --enable-static --disable-shared "$@" )
+      --enable-static --disable-shared "$@" ) || {
+    echo "=== configure de $name falló — tail de config.log ===" >&2
+    tail -80 "$src/config.log" 2>/dev/null || true
+    exit 1
+  }
   make -C "$src" -j"$NPROC"
   make -C "$src" install
   harvest "$name"
@@ -360,8 +364,26 @@ build_one() {
   esac
 }
 
+selftest() {
+  # compila un programa minimo con el MISMO entorno que usan las recetas;
+  # si esto falla, el problema es el toolchain/entorno, no la lib
+  log "selftest toolchain: $CC"
+  df -h . | tail -1 | sed 's/^/[df] /' >&2 || true
+  echo 'int main(void){return 0;}' > "$WORK/st.c"
+  if ! "$CC" $CFLAGS ${CPPFLAGS:-} ${LDFLAGS:-} "$WORK/st.c" -o "$WORK/st.out" 2>"$WORK/st.err"; then
+    echo "=== TOOLCHAIN ROTO (no es la lib) ===" >&2
+    cat "$WORK/st.err" >&2
+    "$CC" -v 2>&1 | tail -15 >&2 || true
+    ls -la "$TC/bin/clang" >&2 || true
+    exit 1
+  fi
+  log "selftest OK"
+}
+
 # ---------------------------------------------------------------- main
 gen_cross
+refresh_env
+selftest
 ARGS=("$@")
 [[ ${#ARGS[@]} -eq 0 ]] && ARGS=(tier1)
 
