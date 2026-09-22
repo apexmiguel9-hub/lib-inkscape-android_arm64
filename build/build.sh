@@ -436,8 +436,23 @@ build_gdk_pixbuf() {
 }
 
 build_cairo() {
-  # sin flags: xlib/xcb no encontrados (aislamiento pc) => solo ft/png activos
-  meson_build cairo "$(extract "$(fetch "$U_CAIRO")")"
+  # sin flags de backend: xlib/xcb no encontrados (aislamiento pc) => solo
+  # ft/png/fontconfig activos
+  local src
+  src="$(extract "$(fetch "$U_CAIRO")")"
+  # (1) tests=disabled: mata perf/test/pdiff/etc (679 targets -> ~250); solo
+  #     necesitamos libcairo*/.pc. boilerplate/gobject/script NO cuelgan de
+  #     tests y siguen.
+  # (2) util/meson.build:45 compila libmalloc-stats si hay execinfo.h. El del
+  #     sysroot del NDK EXISTE (has_header: YES) pero con los decls detras de
+  #     un gate de API>31 => include ok, backtrace_symbols no declarado =>
+  #     -Werror=implicit-function-declaration en malloc-stats.c:120. Bionic
+  #     nunca tuvo backtrace. Nadie referencia libmallocstats en todo cairo
+  #     (grep total verificado) => objetivo muerto: se apaga con `and false`.
+  sed -i "s@^if conf.get('CAIRO_HAS_DLSYM', 0) == 1 and cc.has_header('execinfo.h')@& and false # android: objetivo muerto, sin backtrace en bionic@" \
+    "$src/util/meson.build"
+  meson_build cairo "$src" \
+    -Dtests=disabled
 }
 
 build_pango() {
