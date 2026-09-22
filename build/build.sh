@@ -549,7 +549,52 @@ build_sigcpp() {
 build_glibmm() {
   # build-documentation (combo) ya desactivado en tarball (if-maintainer-mode);
   # OJO: aqui NO existe build-tests (no inventarlo)
-  meson_build glibmm "$(extract "$(fetch "$U_GLIBMM")")" -Dbuild-examples=false
+  local src ct n
+  src="$(extract "$(fetch "$U_GLIBMM")")"
+
+  # --- parche glibmm#118 (run #20) ------------------------------------------
+  # contenttype.cc define content_type_guess(..., const std::basic_string<guchar>&, ...)
+  # que el header YA no declara (commit upstream 84135b93); su cuerpo usa
+  # data.c_str()/data.size() => instancia std::basic_string<unsigned char> =>
+  # libc++ (NDK) NO define char_traits<unsigned char> (solo libstdc++ lo tolera
+  # con su plantilla primaria generica) => run #20 murio en contenttype.cc:93:
+  #   implicit instantiation of undefined template 'std::char_traits<unsigned char>'
+  # Fix = el MISMO de upstream (issue glibmm#118, "clang 19 no le gusta la
+  # version completa"): stub que no toca data. Dry-run local verificado: el .cc
+  # queda IDENTICO a upstream master (salvo su bloque de comentario).
+  ct="$src/gio/giomm/contenttype.cc"
+  n=$(grep -c 'std::basic_string<guchar>& data' "$ct" || true)
+  [[ "$n" == "1" ]] || { echo "ERROR: firma inesperada en contenttype.cc (n=$n); re-auditar parche glibmm#118" >&2; exit 1; }
+  python3 - "$ct" <<'PY' || { echo "ERROR: parche glibmm#118 fallo" >&2; exit 1; }
+import sys
+p = sys.argv[1]
+s = open(p).read()
+sig_old = "const std::string& filename, const std::basic_string<guchar>& data, bool& result_uncertain)"
+sig_new = "const std::string& /*filename*/, const std::basic_string<guchar>& /*data*/, bool& result_uncertain)"
+body_old = """{
+  gboolean c_result_uncertain = FALSE;
+  const gchar* c_filename = filename.empty() ? nullptr : filename.c_str();
+  gchar* cresult = g_content_type_guess(c_filename, data.c_str(), data.size(), &c_result_uncertain);
+  result_uncertain = c_result_uncertain;
+  return Glib::convert_return_gchar_ptr_to_ustring(cresult);
+}"""
+body_new = """{
+  result_uncertain = true;
+  return Glib::ustring();
+}"""
+if s.count(sig_old) != 1 or s.count(body_old) != 1:
+    sys.exit("coincidencias firma=%d cuerpo=%d (esperado 1/1)" % (s.count(sig_old), s.count(body_old)))
+open(p, "w").write(s.replace(sig_old, sig_new).replace(body_old, body_new))
+print("glibmm: overload content_type_guess parcheado (upstream issue #118)")
+PY
+  grep -qF 'basic_string<guchar>& /*data*/' "$ct" || { echo "ERROR: firma nueva no quedo aplicada" >&2; exit 1; }
+  # el cuerpo viejo debe desaparecer; el overload std::string usa el cast
+  # (const guchar*)data.c_str() => NO debe empatar este gate
+  if grep -qF 'g_content_type_guess(c_filename, data.c_str()' "$ct"; then
+    echo "ERROR: cuerpo viejo de content_type_guess sigue presente" >&2; exit 1
+  fi
+
+  meson_build glibmm "$src" -Dbuild-examples=false
   # pangomm y gtkmm hacen find_library('glibmm_generate_extra_defs-2.68',
   # required:true) => si falta esta lib, SUS setups mueren. Compuerta ruidosa.
   ls "$ROOT/glibmm/lib/"libglibmm_generate_extra_defs* >/dev/null 2>&1 || {
