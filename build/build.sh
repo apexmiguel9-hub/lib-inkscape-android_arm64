@@ -64,7 +64,9 @@ U_PANGO="https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz"
 U_GRAPHENE="https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz"
 U_TIFF="https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz"
 U_GTK4="https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz"
-U_SIGCPP="https://gitlab.gnome.org/GNOME/sigcplusplus/-/archive/3.8.0/sigcplusplus-3.8.0.tar.gz"
+# dir oficial = libsigc++ (NO sigc++): 3.6.0 es la ultima publicada ahi
+# (3.8/ = 404) y gitlab.gnome.org redirige a Sign in incluso por API/clone
+U_SIGCPP="https://download.gnome.org/sources/libsigc++/3.6/libsigc++-3.6.0.tar.xz"
 U_GLIBMM="https://download.gnome.org/sources/glibmm/2.78/glibmm-2.78.1.tar.xz"
 U_CAIROMM="https://download.gnome.org/sources/cairomm/1.15/cairomm-1.15.4.tar.xz"
 U_PANGOMM="https://download.gnome.org/sources/pangomm/2.58/pangomm-2.58.0.tar.xz"
@@ -121,13 +123,24 @@ refresh_env() { # recalcula include/lib/pkgconfig contra lo ya cosechado + blend
   done
   [[ -d "$ROOT/pc-overlay" ]] && pcs+=("$ROOT/pc-overlay")
 
-  local incs=() libs=() I
+  local incs=() libs=() libdirs=() I
   for I in "${HARVEST_ROOTS[@]}"; do
     incs+=("-I$I/include")
     libs+=("-L$I/lib")
+    [[ -d "$I/lib" ]] && libdirs+=("$I/lib")
   done
   export CPPFLAGS="${incs[*]:-}"
   export LDFLAGS="${libs[*]:-}"
+  # LIBRARY_PATH: pangomm y gtkmm llaman cpp.find_library('glibmm_generate_extra_defs-2.68')
+  # SIN dirs: => la sonda de meson es un enlace desnudo '-l...' y el driver del
+  # compilador NO lee LDFLAGS (probado con clang/gcc: solo honra LIBRARY_PATH)
+  # => "Cannot find library glibmm_generate_extra_defs-2.68" en su setup aunque
+  # LDFLAGS ya lleve -L. El driver si resuelve via LIBRARY_PATH (empirico).
+  if [[ ${#libdirs[@]} -gt 0 ]]; then
+    local lp
+    lp=$(IFS=:; echo "${libdirs[*]}")
+    export LIBRARY_PATH="$lp${LIBRARY_PATH:+:$LIBRARY_PATH}"
+  fi
 
   # PKG_CONFIG_LIBDIR: SOLO nuestros .pc (aisla los .pc del host del runner)
   if [[ ${#pcs[@]} -gt 0 ]]; then
@@ -524,19 +537,36 @@ build_gtk4() {
 }
 
 build_sigcpp() {
-  # sin meson.options => CERO flags (un flag inexistente = error de meson)
-  meson_build sigc++ "$(extract "$(fetch "$U_SIGCPP")")"
+  # 3.6.0: Inkscape exige sigc++-3.0>=3.6 (DefineDependsandFlags.cmake:449),
+  # glibmm pide >=3.0.0 => minimo oficial exacto. meson.options REALES de 3.6.0:
+  # build-examples/build-tests/validation vienen en true (los apagamos; validation
+  # solo busca xmllint/docbook) y maintainer-mode=if-git-build => false en tarball
+  # (sin mm-common-get, sin gmmproc). NO inventar flags: los tres estan verificados.
+  meson_build sigc++ "$(extract "$(fetch "$U_SIGCPP")")" \
+    -Dbuild-examples=false -Dbuild-tests=false -Dvalidation=false
 }
 
 build_glibmm() {
   # build-documentation (combo) ya desactivado en tarball (if-maintainer-mode);
   # OJO: aqui NO existe build-tests (no inventarlo)
   meson_build glibmm "$(extract "$(fetch "$U_GLIBMM")")" -Dbuild-examples=false
+  # pangomm y gtkmm hacen find_library('glibmm_generate_extra_defs-2.68',
+  # required:true) => si falta esta lib, SUS setups mueren. Compuerta ruidosa.
+  ls "$ROOT/glibmm/lib/"libglibmm_generate_extra_defs* >/dev/null 2>&1 || {
+    echo "ERROR: falta libglibmm_generate_extra_defs* en glibmm/lib (lo exigen pangomm/gtkmm)" >&2
+    exit 1
+  }
 }
 
 build_cairomm() {
-  # sin meson.options => sin flags
-  meson_build cairomm "$(extract "$(fetch "$U_CAIROMM")")"
+  # cairomm 1.15.4 es SOLO autotools: trae configure/Makefile.in pero NO
+  # meson.build (meson_build moria con "no build file meson.build") => at_build.
+  # configure real: unica AC_ARG_ENABLE = tests (default NO, sin boost) y los
+  # examples solo se construyen con `make check` => sin flags de features;
+  # --disable-documentation salta entero el bloque de mm-common (solo doxygen).
+  # 0 .ccg en el tarball => sin gmmproc ni m4. Deps: cairo>=1.10 (1.18.6) +
+  # sigc++-3.0>=2.5.1 (3.6.0, ya cosechada antes en TIER2).
+  at_build cairomm "$(extract "$(fetch "$U_CAIROMM")")" --disable-documentation
 }
 
 build_pangomm() {
