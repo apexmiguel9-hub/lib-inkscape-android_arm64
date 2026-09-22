@@ -202,11 +202,24 @@ harvest() { # harvest <lib>  mueve $STG/<lib> -> $ROOT/<lib> (atomico) y reubica
     mkdir -p "$tmp/lib"
     cp -a "$src/lib/." "$tmp/lib/"
   fi
-  # pcs relocatables: prefix absoluto del staging -> relativo al propio .pc
+  # pcs relocatables: absolutos del staging del CI -> relativos al propio .pc.
+  # Runs #5/#6 del port: el sed '^prefix=.*' NO matcheaba 'prefix = ' con
+  # espacios (icu) y gsl.pc lleva rutas absolutas incrustadas hasta en
+  # Libs/Cflags (sin derivar de ${prefix}) => cmake muere en el generate con
+  # "Imported target ... includes non-existent path". 2 reglas: sufijo tras
+  # <name> conserva su ruta relativa; sin sufijo => la raíz del prefijo.
   if [[ -d "$tmp/lib/pkgconfig" ]]; then
     find "$tmp/lib/pkgconfig" -name '*.pc' -type f | while read -r pc; do
-      sed -i -E 's|^prefix=.*|prefix=${pcfiledir}/../..|' "$pc"
+      sed -i -E \
+        -e 's|/home/runner[^[:space:]]*/staging/([[:alnum:]_.+-]+)/|\${pcfiledir}/../../|g' \
+        -e 's|/home/runner[^[:space:]]*/staging/([[:alnum:]_.+-]+)|\${pcfiledir}/../..|g' \
+        "$pc"
     done
+    # gate: ni un absoluto del runner en el harvest
+    if grep -rl '/home/runner' "$tmp/lib/pkgconfig" --include='*.pc' >/dev/null 2>&1; then
+      log "ERROR: harvest $name dejó .pc con rutas absolutas del runner"
+      exit 1
+    fi
   fi
   # atomico: o queda la carpeta completa o no queda nada
   mv "$tmp" "$dst"
