@@ -1,0 +1,20 @@
+prefix=${pcfiledir}/../..
+datadir=${prefix}/share
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+exec_prefix=${prefix}
+datarootdir=${datadir}
+gmmprocm4dir=${libdir}/pangomm-2.48/proc/m4
+docdir=${datadir}/doc/pangomm-2.48
+doxytagfile=${docdir}/reference/pangomm-2.48.tag
+htmlrefdir=${docdir}/reference/html
+htmlrefpub=https://gnome.pages.gitlab.gnome.org/pangomm
+
+Name: pangomm
+Description: C++ binding for Pango
+URL: https://gtkmm.gnome.org/
+Version: 2.58.0
+Requires: giomm-2.68 >=  2.68.0, cairomm-1.16 >=  1.15.1, pangocairo >=  1.58.0
+Libs: -L${libdir} -lpangomm-2.48
+Cflags: -I${includedir}/pangomm-2.48 -I${libdir}/pangomm-2.48/include
