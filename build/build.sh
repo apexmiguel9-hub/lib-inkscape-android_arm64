@@ -510,7 +510,7 @@ JOBS=()
 for a in "${ARGS[@]}"; do
   case "$a" in
     tier1) JOBS+=("${TIER1[@]}") ;;
-    tier2) pendiente "tier2 (grupo)" ;;
+    tier2) JOBS+=("${TIER2[@]}") ;;
     all)   JOBS+=("${TIER1[@]}" "${TIER2[@]}") ;;
     *)     JOBS+=("$a") ;;
   esac
