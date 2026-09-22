@@ -54,9 +54,14 @@ pc libbrotlicommon brotli 1.0.9  "-lbrotlicommon-static"
 pc libbrotlidec    brotli 1.0.9  "-lbrotlidec-static -lbrotlicommon-static"
 pc libbrotlienc    brotli 1.0.9  "-lbrotlienc-static -lbrotlicommon-static"
 pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2" "libbrotlidec"
-# harfbuzz -> freetype(27 simbolos FT_*) segun deps.md + auditoria nm
-pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz" "" "freetype2"
-pc fribidi     fribidi   1.0.12  "-lfribidi"
+# harfbuzz -> freetype(27 simbolos FT_*) segun deps.md + auditoria nm.
+# Cflags-extra: layout ANIDADO include/harfbuzz/hb.h pero el consumo es
+# <hb.h> (pango-coverage.h:28 e inkscape) => -I al subdir, igual que el
+# harfbuzz.pc upstream. Sin esto: 'hb.h file not found' (pango run #12).
+pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz" "-I\${prefix}/include/harfbuzz" "freetype2"
+# fribidi: mismo caso, anidado include/fribidi/ y pango incluye <fribidi.h>
+# (upstream fribidi.pc tambien -I al subdir); habria petado justo tras hb.
+pc fribidi     fribidi   1.0.12  "-lfribidi" "-I\${prefix}/include/fribidi"
 
 # --- XML / GL ---
 # xml2: layout include/libxml2/ (parser.h confirmado); zlib+zstd plegados en Libs
