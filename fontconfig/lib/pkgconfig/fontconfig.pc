@@ -1,0 +1,15 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+sysconfdir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/fontconfig/etc
+localstatedir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/fontconfig/var
+confdir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/fontconfig/etc/fonts
+cachedir=/home/runner/work/lib-inkscape-android_arm64/lib-inkscape-android_arm64/.work/staging/fontconfig/var/cache/fontconfig
+
+Name: Fontconfig
+Description: Font configuration and customization library
+Version: 2.17.1
+Requires: freetype2, expat
+Libs: -L${libdir} -lfontconfig -pthread -lm
+Cflags: -I${includedir} -pthread
