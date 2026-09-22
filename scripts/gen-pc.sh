@@ -12,9 +12,12 @@ OUT="${2:-$PWD/pc-overlay}"
 [[ -d "$B" ]] || { echo "ERROR: no existe $B" >&2; exit 1; }
 mkdir -p "$OUT"
 
-# pc <nombre> <subdir-de-blender> <version> <Libs> [Cflags-extra]
+# pc <nombre> <subdir-de-blender> <version> <Libs> [Cflags-extra] [Requires]
+# Requires: los consumidores usan pkg-config sin --static, asi que la cadena
+# estatica interna (freetype->brotli, harfbuzz->freetype) va por Requires,
+# que SI expande siempre. Ver auditoria nm: el set de 14 libs es cerrado.
 pc() {
-  local name="$1" sub="$2" ver="$3" libs="$4" cflags="${5:-}"
+  local name="$1" sub="$2" ver="$3" libs="$4" cflags="${5:-}" req="${6:-}"
   cat > "$OUT/$name.pc" <<EOF
 prefix=$B/$sub
 libdir=\${prefix}/lib
@@ -25,6 +28,7 @@ Description: Shim generado para las libs precompiladas de Blender ($sub)
 Version: $ver
 Libs: -L\${libdir} $libs
 Cflags: -I\${includedir} $cflags
+${req:+Requires: $req}
 EOF
 }
 
@@ -43,8 +47,15 @@ pc libopenjp2  openjpeg  2.5.3   "-lopenjp2"
 # '>= 21.0.15' por pkg-config — sentinel imposible que en escritorio redirige
 # al metodo cmake, pero en nuestro cross ese metodo no existe y nos dejaba
 # fuera. Solo lo leen comparadores '>=', sin techo (cairo/pango: >= 2.6).
-pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2"
-pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz"
+# Requires libbrotlidec: deps.md oficial = freetype -> brotli (WOFF2); el
+# linker exigia BrotliDecoderDecompress al enlazar fc-* (auditoria nm:
+# freetype usa zlib(4)+brotli(1)). Nombres '-static' = como los compila Blender.
+pc libbrotlicommon brotli 1.0.9  "-lbrotlicommon-static"
+pc libbrotlidec    brotli 1.0.9  "-lbrotlidec-static -lbrotlicommon-static"
+pc libbrotlienc    brotli 1.0.9  "-lbrotlienc-static -lbrotlicommon-static"
+pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2" "libbrotlidec"
+# harfbuzz -> freetype(27 simbolos FT_*) segun deps.md + auditoria nm
+pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz" "" "freetype2"
 pc fribidi     fribidi   1.0.12  "-lfribidi"
 
 # --- XML / GL ---

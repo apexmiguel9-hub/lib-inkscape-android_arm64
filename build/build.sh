@@ -74,7 +74,8 @@ TIER1=(atomic_ops libiconv gettext libffi pcre2 expat bdw-gc lcms2 icu gsl doubl
 TIER2=(fontconfig glib libxkbcommon gdk-pixbuf cairo pango graphene gtk4 sigc++ glibmm cairomm pangomm gtkmm)
 
 # solo las libs de blender que realmente usamos (evita colisiones de headers)
-BLENDER_WANT=(zlib png jpeg freetype harfbuzz fribidi xml2 epoxy potrace webp openjpeg zstd)
+# brotli: cadena interna de freetype (WOFF2); ver shims libbrotli* en gen-pc.sh
+BLENDER_WANT=(zlib png jpeg freetype harfbuzz fribidi xml2 epoxy potrace webp openjpeg zstd brotli)
 
 log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
 
