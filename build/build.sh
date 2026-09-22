@@ -620,7 +620,46 @@ build_pangomm() {
 }
 
 build_gtkmm() {
-  meson_build gtkmm "$(extract "$(fetch "$U_GTKMM")")" \
+  local src ih n
+  src="$(extract "$(fetch "$U_GTKMM")")"
+
+  # --- parche skew gtkmm-4.14.0 vs gtk4.22.5 (run #21) ----------------------
+  # gmmproc pre-genero untracked/gtk/gtkmm/iconpaintable.h pensando que
+  # GtkIconPaintable era DERIVABLE y forward-declara la clase:
+  #   using GtkIconPaintableClass = struct _GtkIconPaintableClass;
+  # pero gtk4.22.5 ya la declara FINAL => G_DECLARE_FINAL_TYPE define
+  #   typedef struct { GObjectClass parent_class; } GtkIconPaintableClass;
+  # (struct ANONIMO) => tipos distintos => run #21 murio en wrap_init.cc:
+  #   typedef redefinition with different types ('struct _GtkIconPaintableClass'
+  #   vs 'struct GtkIconPaintableClass')
+  # (gtk 4.14 la tenia derivable — por eso gtkmm 4.14 compila en escritorio;
+  # gtk la convirtio a final entre 4.15 y 4.22.)
+  # Barrido de la clase sobre los arbolles reales: 65 tipos FINALES en
+  # gtk-4.0+gdk-4.0+gsk-4.0 vs 246 using-lines de gtkmm+gdkmm pre-generados =>
+  # UNICO caso GtkIconPaintable. Fix: borrar la using-line de Clase e insertar
+  # la cabecera C ANTES del bloque DOXYEN (mismo patron que alertdialog.h, que
+  # ya compila): el typedef de Clase sale de gtk, la instance-using (struct
+  # _GtkIconPaintable) sigue y es del MISMO tipo que declara
+  # G_DECLARE_FINAL_TYPE => redeclaracion legal, y private/iconpaintable_p.h
+  # (BaseClassType) se beneficia via iconpaintable.cc -> iconpaintable.h.
+  ih="$src/untracked/gtk/gtkmm/iconpaintable.h"
+  n=$(grep -c '^using GtkIconPaintableClass = struct _GtkIconPaintableClass;$' "$ih" || true)
+  [[ "$n" == "1" ]] || { echo "ERROR: anchor using-class en iconpaintable.h n=$n (cambio upstream; re-auditar skew gtkmm/gtk4)" >&2; exit 1; }
+  n=$(grep -c '^#include <giomm/file.h>$' "$ih" || true)
+  [[ "$n" == "1" ]] || { echo "ERROR: anchor giomm/file.h n=$n en iconpaintable.h" >&2; exit 1; }
+  sed -i '/^using GtkIconPaintableClass = struct _GtkIconPaintableClass;$/d' "$ih"
+  sed -i '/^#include <giomm\/file.h>$/a #include <gtk/gtkiconpaintable.h> // skew: gtkmm-4.14.0 la genero como derivable; gtk4.22 la declara FINAL' "$ih"
+  if grep -q 'using GtkIconPaintableClass = struct' "$ih"; then
+    echo "ERROR: using-class de GtkIconPaintable sigue presente tras el parche" >&2; exit 1
+  fi
+  [[ "$(grep -c '^#include <gtk/gtkiconpaintable.h>' "$ih")" == "1" ]] || {
+    echo "ERROR: include gtk/gtkiconpaintable.h no quedo exactamente 1 vez" >&2; exit 1
+  }
+  [[ "$(grep -c 'using GtkIconPaintable = struct' "$ih")" == "1" ]] || {
+    echo "ERROR: instance-using de GtkIconPaintable alterada" >&2; exit 1
+  }
+
+  meson_build gtkmm "$src" \
     -Dbuild-demos=false -Dbuild-tests=false
 }
 
