@@ -147,24 +147,29 @@ EOF
 }
 
 # ---------------------------------------------------------------- harvest
-harvest() { # harvest <lib>  mueve $STG/<lib> -> $ROOT/<lib> y reubica .pc
-  local name="$1" src="$STG/$name" dst="$ROOT/$name"
+harvest() { # harvest <lib>  mueve $STG/<lib> -> $ROOT/<lib> (atomico) y reubica .pc
+  local name="$1" src="$STG/$name" dst="$ROOT/$name" tmp="$ROOT/.harvest-$name"
   [[ -d "$src" ]] || { echo "ERROR: harvest: $src no existe" >&2; exit 1; }
-  rm -rf "$dst"
-  mkdir -p "$dst"
-  [[ -d "$src/include" ]] && cp -a "$src/include" "$dst/"
+  rm -rf "$dst" "$tmp"
+  mkdir -p "$tmp"
+  [[ -d "$src/include" ]] && cp -a "$src/include" "$tmp/"
   # algunos (gsl, icu...) instalan en lib64
   if [[ -d "$src/lib64" ]]; then
-    mkdir -p "$dst/lib"
-    cp -a "$src/lib64/." "$dst/lib/"
+    mkdir -p "$tmp/lib"
+    cp -a "$src/lib64/." "$tmp/lib/"
   fi
-  [[ -d "$src/lib" ]] && cp -a "$src/lib" "$dst/"
+  if [[ -d "$src/lib" ]]; then
+    mkdir -p "$tmp/lib"
+    cp -a "$src/lib/." "$tmp/lib/"
+  fi
   # pcs relocatables: prefix absoluto del staging -> relativo al propio .pc
-  if [[ -d "$dst/lib/pkgconfig" ]]; then
-    find "$dst/lib/pkgconfig" -name '*.pc' -type f | while read -r pc; do
+  if [[ -d "$tmp/lib/pkgconfig" ]]; then
+    find "$tmp/lib/pkgconfig" -name '*.pc' -type f | while read -r pc; do
       sed -i -E 's|^prefix=.*|prefix=${pcfiledir}/../..|' "$pc"
     done
   fi
+  # atomico: o queda la carpeta completa o no queda nada
+  mv "$tmp" "$dst"
   local npcs=0
   [[ -d "$dst/lib/pkgconfig" ]] && npcs=$(find "$dst/lib/pkgconfig" -name '*.pc' | wc -l)
   log "harvest $name: include=$([[ -d $dst/include ]] && echo si || echo no) libs=$(find "$dst/lib" -maxdepth 1 -name '*.a' 2>/dev/null | wc -l) pc=$npcs"
@@ -245,20 +250,31 @@ build_bdwgc() {
 build_lcms2() { at_build lcms2 "$(extract "$(fetch "$U_LCMS2")")"; }
 
 build_icu() {
-  # ICU cross = 2 fases: host ICU (data tools) + target con --with-cross-build
-  local dir
-  dir="$(extract "$(fetch "$U_ICU")")"
+  # ICU cross = 2 árboles separados:
+  #  - host: genera config/icucross.mk + tools (bin/) en su BUILD ROOT
+  #  - target: out-of-source con --with-cross-build=<build root del host>
+  # (pasar el prefix de install o hacer distclean rompe icucross.mk)
+  local tgz hostroot tdir
+  tgz="$(fetch "$U_ICU")"
+  rm -rf "$WORK/icu-host" "$WORK/icu-target"
+  mkdir -p "$WORK/icu-host" "$WORK/icu-target"
+  tar -xzf "$tgz" -C "$WORK/icu-host"
+  tar -xzf "$tgz" -C "$WORK/icu-target"
+  hostroot="$WORK/icu-host/icu/source"
+  tdir="$WORK/icu-target/icu"
+
   log "icu: fase host (nativo — anula el toolchain exportado)"
-  ( cd "$dir/source"
+  ( cd "$hostroot"
     CC=gcc CXX=g++ AR=ar RANLIB=ranlib ./configure --prefix="$HOSTICU" \
       --disable-samples --disable-tests --enable-static --disable-shared
     make -j"$NPROC"
     make install )
-  log "icu: fase target"
-  ( cd "$dir/source"
-    make distclean >/dev/null 2>&1 || true
-    ./configure --host="$TRIPLE" --prefix="$STG/icu" \
-      --with-cross-build="$HOSTICU" \
+
+  log "icu: fase target (out-of-source)"
+  mkdir -p "$tdir/build"
+  ( cd "$tdir/build"
+    ../source/configure --host="$TRIPLE" --prefix="$STG/icu" \
+      --with-cross-build="$hostroot" \
       --disable-samples --disable-tests \
       --enable-static --disable-shared \
       --with-data-packaging=library
@@ -317,6 +333,11 @@ pendiente() {
 
 build_one() {
   refresh_env
+  # si ya esta cosechada en el repo, no la recompilamos (FORCE=1 para obligar)
+  if [[ "${FORCE:-0}" != "1" && ( -d "$ROOT/$1/lib" || -d "$ROOT/$1/include" ) ]]; then
+    log "skip $1 (ya cosechada — FORCE=1 para recompilar)"
+    return 0
+  fi
   log "=== build $1 ==="
   case "$1" in
     atomic_ops)         build_atomic_ops ;;

@@ -1,4 +1,5 @@
 .work/
 .blender-libs/
+.harvest-*/
 pc-overlay/
 *.tmp

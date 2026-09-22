@@ -11,6 +11,11 @@ on:
         description: 'Version del NDK (si da problemas probar r30-beta1, la que usa Blender)'
         required: false
         default: 'r30'
+      force:
+        description: 'Recompilar aunque la lib ya este cosechada'
+        required: false
+        type: boolean
+        default: false
 
 # Serializar dispatches para no pisarnos en el push
 concurrency:
@@ -100,11 +105,14 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
           BLENDER_LIBS: ${{ github.workspace }}/.blender-libs
+          FORCE: ${{ inputs.force && '1' || '0' }}
         run: |
           chmod +x build/build.sh scripts/gen-pc.sh
           build/build.sh ${{ inputs.libs }}
 
       - name: Commit + push (con retry contra carreras)
+        # aunque el build falle a medias, subir las libs que SÍ salieron
+        if: ${{ !cancelled() }}
         run: |
           set -o pipefail
           git config user.name "github-actions[bot]"
@@ -125,6 +133,7 @@ jobs:
           exit 1
 
       - name: Resumen
+        if: ${{ !cancelled() }}
         run: |
           {
             echo "### Libs cosechadas ($(date -u +%Y-%m-%d))"
