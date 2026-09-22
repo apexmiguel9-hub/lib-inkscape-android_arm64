@@ -496,7 +496,25 @@ build_tiff() {
 build_gtk4() {
   # android-backend (boolean) + android-runtime (feature); el resto verificado
   # en el meson.options de gtk 4.22.5 (todos existen y con el tipo correcto)
-  meson_build gtk4 "$(extract "$(fetch "$U_GTK4")")" \
+  local src
+  src="$(extract "$(fetch "$U_GTK4")")"
+  # hb-glib: Blender compilo harfbuzz SIN glib => sin hb-glib.h (33 headers)
+  # y sin hb_glib_* en el .a, pero gtkmain.c lo incluye sin guardar ni gatear
+  # (unico include hb-glib de todo el arbol gtk; unica llamada en :869;
+  # meson de gtk tampoco lo gatea => implicit-function-declaration run #17).
+  # Parche de semantica IDENTICA: se inlinea la linea real de hb-glib.cc de
+  # harfbuzz 10.0.1 ('return (hb_script_t) g_unicode_script_to_iso15924
+  # (script);'; guint32 -> tag hb_script_t, gunicode.h:696, visible en
+  # gtkmain via gi18n-lib.h->glib.h:97). Los otros dos hb-* que usa gtk
+  # (hb-ot.h, hb-subset.h) si existen en Blender (barrido completo 1:1).
+  sed -i 's@^#include <hb-glib\.h>$@#include <hb.h>@' "$src/gtk/gtkmain.c"
+  sed -i 's@hb_glib_script_to_script ((GUnicodeScript) scripts\[i\])@(hb_script_t) g_unicode_script_to_iso15924 ((GUnicodeScript) scripts[i])@' \
+    "$src/gtk/gtkmain.c"
+  grep -q '^#include <hb\.h>$' "$src/gtk/gtkmain.c" \
+    || { echo "ERROR: sed de hb.h no aplico en gtkmain.c" >&2; exit 1; }
+  ! grep -q 'hb_glib' "$src/gtk/gtkmain.c" \
+    || { echo "ERROR: queda hb_glib sin parchear en gtkmain.c" >&2; exit 1; }
+  meson_build gtk4 "$src" \
     -Dandroid-backend=true -Dandroid-runtime=enabled \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
     -Dintrospection=disabled -Ddocumentation=false -Dman-pages=false \
