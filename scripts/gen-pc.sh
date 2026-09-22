@@ -39,7 +39,11 @@ pc libopenjp2  openjpeg  2.5.3   "-lopenjp2"
 # --- texto ---
 # freetype: layout include/freetype2/ (ft2build.h confirmado), zlib del sistema
 # (FT_CONFIG_OPTION_SYSTEM_ZLIB definido) → -lz obligatorio.
-pc freetype2   freetype  2.13.3  "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2"
+# Version 21.0.15 (el real es 2.13.3): fontconfig 2.15 meson.build:22 exige
+# '>= 21.0.15' por pkg-config — sentinel imposible que en escritorio redirige
+# al metodo cmake, pero en nuestro cross ese metodo no existe y nos dejaba
+# fuera. Solo lo leen comparadores '>=', sin techo (cairo/pango: >= 2.6).
+pc freetype2   freetype  21.0.15 "-lfreetype -lz -lm" "-I\${prefix}/include/freetype2"
 pc harfbuzz    harfbuzz  10.0.1  "-lharfbuzz"
 pc fribidi     fribidi   1.0.12  "-lfribidi"
 
