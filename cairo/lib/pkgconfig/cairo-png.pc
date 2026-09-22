@@ -1,0 +1,8 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+
+Name: cairo-png
+Description: PNG functions for cairo graphics library
+Version: 1.18.6
+Requires: cairo, libpng >=  1.4.0
+Cflags: -I${includedir}
