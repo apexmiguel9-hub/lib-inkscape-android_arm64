@@ -302,7 +302,9 @@ build_pixman() {
   local dir
   dir="$(extract "$(fetch "$U_PIXMAN")")"
   if [[ -f "$dir/meson.build" ]]; then
-    meson_build pixman "$dir"
+    # los .S NEON de a64 usan el pegado de tokens '&' de GNU as, que el
+    # integrated assembler de clang (NDK) NO entiende -> paths C portables
+    meson_build pixman "$dir" -Da64-neon=disabled
   else
     at_build pixman "$dir"
   fi
