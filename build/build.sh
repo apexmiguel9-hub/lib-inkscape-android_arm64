@@ -634,26 +634,37 @@ build_gtkmm() {
   #   vs 'struct GtkIconPaintableClass')
   # (gtk 4.14 la tenia derivable — por eso gtkmm 4.14 compila en escritorio;
   # gtk la convirtio a final entre 4.15 y 4.22.)
-  # Barrido de la clase sobre los arbolles reales: 65 tipos FINALES en
-  # gtk-4.0+gdk-4.0+gsk-4.0 vs 246 using-lines de gtkmm+gdkmm pre-generados =>
-  # UNICO caso GtkIconPaintable. Fix: borrar la using-line de Clase e insertar
-  # la cabecera C ANTES del bloque DOXYEN (mismo patron que alertdialog.h, que
-  # ya compila): el typedef de Clase sale de gtk, la instance-using (struct
+  # Barrido de la clase sobre los arbolles REALES (ojo: gdk/ y gsk/ viven
+  # dentro de gtk4/include/gtk-4.0/, NO como gdk-4.0/gsk-4.0 — el primer
+  # escaneo los omitio): 66 tipos FINALES (gtk 59, gsk 1, gdk 0) vs 246
+  # using-lines de gtkmm+gdkmm pre-generados => UNICO caso GtkIconPaintable.
+  # Fix: borrar la using-line de Clase e insertar '#include <gtk/gtk.h>' ANTES
+  # del bloque DOXYEN (mismo patron que alertdialog.h:31 y las31 cabeceras que
+  # ya compilan): el typedef de Clase sale de gtk, la instance-using (struct
   # _GtkIconPaintable) sigue y es del MISMO tipo que declara
   # G_DECLARE_FINAL_TYPE => redeclaracion legal, y private/iconpaintable_p.h
   # (BaseClassType) se beneficia via iconpaintable.cc -> iconpaintable.h.
+  # OJO (run #22): NO servia '#include <gtk/gtkiconpaintable.h>' — gtk4 tiene
+  # single-include check y aborta con '#error "Only <gtk/gtk.h> can be
+  # included directly."'; por eso el upstream son <gtk/gtk.h> tambien.
+  # (En wrap_init.cc NO exploto porque ahi gtk.h ya venia via alertdialog.h.)
   ih="$src/untracked/gtk/gtkmm/iconpaintable.h"
   n=$(grep -c '^using GtkIconPaintableClass = struct _GtkIconPaintableClass;$' "$ih" || true)
   [[ "$n" == "1" ]] || { echo "ERROR: anchor using-class en iconpaintable.h n=$n (cambio upstream; re-auditar skew gtkmm/gtk4)" >&2; exit 1; }
   n=$(grep -c '^#include <giomm/file.h>$' "$ih" || true)
   [[ "$n" == "1" ]] || { echo "ERROR: anchor giomm/file.h n=$n en iconpaintable.h" >&2; exit 1; }
+  n=$(grep -c '^#include <gtk/gtk\.h>' "$ih" || true)
+  [[ "$n" == "0" ]] || { echo "ERROR: iconpaintable.h ya trae gtk.h (n=$n); patron cambio, re-auditar" >&2; exit 1; }
   sed -i '/^using GtkIconPaintableClass = struct _GtkIconPaintableClass;$/d' "$ih"
-  sed -i '/^#include <giomm\/file.h>$/a #include <gtk/gtkiconpaintable.h> // skew: gtkmm-4.14.0 la genero como derivable; gtk4.22 la declara FINAL' "$ih"
+  sed -i '/^#include <giomm\/file.h>$/a #include <gtk/gtk.h> // skew: gtkmm-4.14.0 genero esta clase como derivable; gtk4.22 la declara FINAL' "$ih"
   if grep -q 'using GtkIconPaintableClass = struct' "$ih"; then
     echo "ERROR: using-class de GtkIconPaintable sigue presente tras el parche" >&2; exit 1
   fi
-  [[ "$(grep -c '^#include <gtk/gtkiconpaintable.h>' "$ih")" == "1" ]] || {
-    echo "ERROR: include gtk/gtkiconpaintable.h no quedo exactamente 1 vez" >&2; exit 1
+  if grep -q '#include <gtk/gtkiconpaintable\.h>' "$ih"; then
+    echo "ERROR: include suelto de gtkiconpaintable.h (gtk lo prohibe: 'Only <gtk/gtk.h>')" >&2; exit 1
+  fi
+  [[ "$(grep -c '^#include <gtk/gtk\.h>' "$ih")" == "1" ]] || {
+    echo "ERROR: include <gtk/gtk.h> no quedo exactamente 1 vez" >&2; exit 1
   }
   [[ "$(grep -c 'using GtkIconPaintable = struct' "$ih")" == "1" ]] || {
     echo "ERROR: instance-using de GtkIconPaintable alterada" >&2; exit 1
