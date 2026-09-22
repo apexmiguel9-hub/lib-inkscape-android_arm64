@@ -392,7 +392,7 @@ build_glib() {
   # libglib2.0-bin del workflow); la salida de genmarshal y el formateo
   # gresource son estables (API 2.32), tools 2.80 -> lib 2.88 sin problema.
   sed -i -E \
-    's@^([a-z_0-9]+)=.*/bin/(glib-[a-z-]+|gdbus-codegen)$@\1=/usr/bin/\2@' \
+    's@^([a-z_0-9]+)=.*/(glib-[a-z-]+|gdbus-codegen)$@\1=/usr/bin/\2@' \
     "$ROOT/glib/lib/pkgconfig/"*.pc
 }
 
