@@ -32,6 +32,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | fontconfig | 2.17.1 | <https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.17.1/fontconfig-2.17.1.tar.xz> | pango 1.58 exige `fontconfig >= 2.17.0`; el release dir oficial se paró en 2.16 (2.15/2.16 siguen ahí); sha256 `9f5cae93f4fffc1fbc05ae99cdfc708cd60dfd6612ffc0512827025c026fa541`; sentinel `freetype_req = '>= 21.0.15'` sigue = shim 21.0.15 |
 | pango | 1.58.0 | <https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz> | par estables: dirs 1.54-1.58, `1.90` es dev |
 | graphene | 1.10.8 | <https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz> | meson, minúscula |
+| tiff | 4.7.2 | <https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz> | **subió del tier3: gtk4 4.22.5 exige `libtiff-4` incondicional** (meson.build:484, sin opcion para apagarlo); Inkscape no lo usa directo; sha256 `672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a`; CMake, codecs solo jpeg+zlib |
 | gtk | 4.22.5 | <https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz> | `-Dandroid-backend=true -Dandroid-runtime=true`; 5 parches = maduro |
 | sigc++ | 3.8.0 | <https://gitlab.gnome.org/GNOME/sigcplusplus/-/archive/3.8.0/sigcplusplus-3.8.0.tar.gz> | **solo gitlab.gnome.org** (download.gnome.org y mirror GitHub = 404) |
 | glibmm | 2.78.1 | <https://download.gnome.org/sources/glibmm/2.78/glibmm-2.78.1.tar.xz> | URL+SHA256=`f473f297…` sacados del propio CMake de Inkscape (fallback ExternalProject) |
@@ -64,5 +65,5 @@ Toda la pila mm es **meson** en estas versiones ⇒ no hace falta `mm-common`/au
 
 ## Tier3 — OFF en primera pasada
 
-poppler, libwpg, libvisio, libcdr, gtksourceview-5, libspelling, tiff, jemalloc,
-readline, ImageMagick/GraphicsMagick.
+poppler, libwpg, libvisio, libcdr, gtksourceview-5, libspelling, jemalloc,
+readline, ImageMagick/GraphicsMagick. (tiff subió a tier2: lo exige gtk4.)

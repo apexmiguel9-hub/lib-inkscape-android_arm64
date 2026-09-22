@@ -62,6 +62,7 @@ U_GDK_PIXBUF="https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42
 U_CAIRO="https://cairographics.org/releases/cairo-1.18.6.tar.xz"
 U_PANGO="https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz"
 U_GRAPHENE="https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz"
+U_TIFF="https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz"
 U_GTK4="https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz"
 U_SIGCPP="https://gitlab.gnome.org/GNOME/sigcplusplus/-/archive/3.8.0/sigcplusplus-3.8.0.tar.gz"
 U_GLIBMM="https://download.gnome.org/sources/glibmm/2.78/glibmm-2.78.1.tar.xz"
@@ -71,7 +72,7 @@ U_GTKMM="https://download.gnome.org/sources/gtkmm/4.14/gtkmm-4.14.0.tar.xz"
 
 TIER1=(atomic_ops libiconv gettext libffi pcre2 expat bdw-gc lcms2 icu gsl double-conversion pixman libxslt boost)
 # orden = orden de dependencias: fontconfig ANTES de cairo (cairo-ft la exige)
-TIER2=(fontconfig glib libxkbcommon gdk-pixbuf cairo pango graphene gtk4 sigc++ glibmm cairomm pangomm gtkmm)
+TIER2=(fontconfig glib libxkbcommon gdk-pixbuf cairo pango graphene tiff gtk4 sigc++ glibmm cairomm pangomm gtkmm)
 
 # solo las libs de blender que realmente usamos (evita colisiones de headers)
 # brotli: cadena interna de freetype (WOFF2); ver shims libbrotli* en gen-pc.sh
@@ -471,6 +472,25 @@ build_pango() {
 build_graphene() {
   meson_build graphene "$(extract "$(fetch "$U_GRAPHENE")")" \
     -Dtests=false -Dinstalled_tests=false
+}
+
+build_tiff() {
+  # libtiff-4: gtk4/meson.build:484 lo exige INCONDICIONAL (sin required: y
+  # sin opcion en meson.options). Inkscape NO lo usa directo (DefineDepends)
+  # => sube del tier3 por culpa de gtk4.
+  # 4.7.2 sha256 672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a
+  # Opciones verificadas 1:1 en el CMakeLists real: tiff-tools/tests/contrib/
+  # docs/cxx OFF (nada de ejecutables). Codecs SOLO jpeg+zlib: el resto
+  # defaulta a ${*_FOUND} y con nuestro set webp/zstd darían ON => sus -l
+  # acabarian en Libs.private (ocultos sin --static) y romperian los enlaces
+  # de las tools de gtk4 (misma clase de mina que gdk-pixbuf). lzma/jbig/
+  # libdeflate/lerc no existen en el set, pero se ponen explicitos por
+  # determinismo. pc instalado = libtiff-4.pc, Libs: -ltiff <-> libtiff.a ✓.
+  cmake_build tiff "$(extract "$(fetch "$U_TIFF")")" \
+    -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-contrib=OFF -Dtiff-docs=OFF \
+    -Dtiff-cxx=OFF \
+    -Djpeg=ON -Dzlib=ON -Djpeg12=OFF \
+    -Dwebp=OFF -Dzstd=OFF -Dlzma=OFF -Djbig=OFF -Dlibdeflate=OFF -Dlerc=OFF
 }
 
 build_gtk4() {

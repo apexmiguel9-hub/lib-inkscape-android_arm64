@@ -67,8 +67,8 @@ Todos los `.a` son estáticas → todo se empaqueta en `libinkscape.so` del APK.
 | Stage | Contenido | Estado |
 |---|---|---|
 | tier1 | atomic_ops, libiconv, gettext, libffi, pcre2, expat, bdw-gc, lcms2, ICU, GSL, double-conversion, pixman, libxslt, boost | implementado |
-| tier2 | glib → cairo → gdk-pixbuf → fontconfig → pango → graphene → GTK4 (`-Dandroid-backend -Dandroid-runtime`) → sigc++/glibmm/cairomm/pangomm/gtkmm | pendiente (siguiente ronda) |
-| tier3 | poppler, libwpg, libvisio, libcdr, gtksourceview-5, libspelling, tiff | OFF en primera pasada |
+| tier2 | glib → cairo → gdk-pixbuf → fontconfig → pango → graphene → tiff → GTK4 (`-Dandroid-backend -Dandroid-runtime`) → sigc++/glibmm/cairomm/pangomm/gtkmm | en curso |
+| tier3 | poppler, libwpg, libvisio, libcdr, gtksourceview-5, libspelling | OFF en primera pasada |
 
 Nota: Inkscape trae fallbacks `ExternalProject` que intentan bajar glibmm/gtkmm y
 compilarlos para el **host** → se evitan proveyendo todos los `.pc` desde tier2.
