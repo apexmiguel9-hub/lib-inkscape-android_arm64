@@ -54,8 +54,24 @@ U_PIXMAN="https://www.cairographics.org/releases/pixman-0.42.2.tar.gz"
 U_LIBXSLT="https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz"
 U_BOOST="https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.bz2"
 
+# tier2 — stack GNOME (opciones meson verificadas contra cada tarball)
+U_FONTCONFIG="https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.gz"
+U_GLIB="https://download.gnome.org/sources/glib/2.88/glib-2.88.0.tar.xz"
+U_LIBXKBCOMMON="https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz"
+U_GDK_PIXBUF="https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz"
+U_CAIRO="https://cairographics.org/releases/cairo-1.18.0.tar.xz"
+U_PANGO="https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz"
+U_GRAPHENE="https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz"
+U_GTK4="https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz"
+U_SIGCPP="https://gitlab.gnome.org/GNOME/sigcplusplus/-/archive/3.8.0/sigcplusplus-3.8.0.tar.gz"
+U_GLIBMM="https://download.gnome.org/sources/glibmm/2.78/glibmm-2.78.1.tar.xz"
+U_CAIROMM="https://download.gnome.org/sources/cairomm/1.15/cairomm-1.15.4.tar.xz"
+U_PANGOMM="https://download.gnome.org/sources/pangomm/2.58/pangomm-2.58.0.tar.xz"
+U_GTKMM="https://download.gnome.org/sources/gtkmm/4.14/gtkmm-4.14.0.tar.xz"
+
 TIER1=(atomic_ops libiconv gettext libffi pcre2 expat bdw-gc lcms2 icu gsl double-conversion pixman libxslt boost)
-TIER2=(glib cairo gdk-pixbuf fontconfig pango graphene gtk4 sigc++ glibmm cairomm pangomm gtkmm)
+# orden = orden de dependencias: fontconfig ANTES de cairo (cairo-ft la exige)
+TIER2=(fontconfig glib libxkbcommon gdk-pixbuf cairo pango graphene gtk4 sigc++ glibmm cairomm pangomm gtkmm)
 
 # solo las libs de blender que realmente usamos (evita colisiones de headers)
 BLENDER_WANT=(zlib png jpeg freetype harfbuzz fribidi xml2 epoxy potrace webp openjpeg zstd)
@@ -335,10 +351,96 @@ build_boost() {
   harvest boost
 }
 
-# ---------------------------------------------------------------- tier2 (pendiente)
-pendiente() {
-  echo "RECETA PENDIENTE: '$1' — el tier2 (glib→gtkmm) se añade cuando tier1 esté verde." >&2
-  exit 3
+# ---------------------------------------------------------------- recetas tier2
+# Cada flag viene verificado contra el meson.options / meson_options.txt del
+# propietario tarball: boolean no admite 'disabled' ni feature admite 'false'
+# en algunos => flag mal puesto es error duro de meson.
+
+build_fontconfig() {
+  # gperf (apt); expat(tier1) + freetype2(blender) via pc/CPPFLAGS
+  # cache-build OFF: por defecto EJECUTA fc-cache en install (imposible cross)
+  meson_build fontconfig "$(extract "$(fetch "$U_FONTCONFIG")")" \
+    -Ddoc=disabled -Dnls=disabled -Dtests=disabled -Dcache-build=disabled
+}
+
+build_glib() {
+  # pcre2/libffi/zlib del tier1 y blender via pc; selinux/libmount ausentes
+  # por aislamiento de pc pero los apagamos explicitos
+  meson_build glib "$(extract "$(fetch "$U_GLIB")")" \
+    -Dtests=false -Dinstalled_tests=false -Dman=false -Ddocumentation=false \
+    -Dnls=disabled -Dintrospection=disabled \
+    -Dselinux=disabled -Dlibmount=disabled
+}
+
+build_libxkbcommon() {
+  # GTK4 la exige (deps oficiales); x11 off porque exigiria libX11
+  # (enable-x11 construye la lib xkbcommon-x11); datos xkb = runtime
+  meson_build libxkbcommon "$(extract "$(fetch "$U_LIBXKBCOMMON")")" \
+    -Denable-tools=false -Denable-x11=false -Denable-wayland=false
+}
+
+build_gdk_pixbuf() {
+  # builtin_loaders=all => TODO estatico: sin .so ni loaders.cache en runtime
+  # (mata el riesgo README4); png/jpeg de blender por pc
+  meson_build gdk-pixbuf "$(extract "$(fetch "$U_GDK_PIXBUF")")" \
+    -Dbuiltin_loaders=all -Dintrospection=disabled \
+    -Dgtk_doc=false -Ddocs=false -Dman=false \
+    -Dtests=false -Dinstalled_tests=false
+}
+
+build_cairo() {
+  # sin flags: xlib/xcb no encontrados (aislamiento pc) => solo ft/png activos
+  meson_build cairo "$(extract "$(fetch "$U_CAIRO")")"
+}
+
+build_pango() {
+  meson_build pango "$(extract "$(fetch "$U_PANGO")")" \
+    -Ddocumentation=false -Dman-pages=false \
+    -Dbuild-testsuite=false -Dbuild-examples=false \
+    -Dintrospection=disabled -Dxft=disabled
+}
+
+build_graphene() {
+  meson_build graphene "$(extract "$(fetch "$U_GRAPHENE")")" \
+    -Dtests=false -Dinstalled_tests=false
+}
+
+build_gtk4() {
+  # android-backend (boolean) + android-runtime (feature); el resto verificado
+  # en el meson.options de gtk 4.22.5 (todos existen y con el tipo correcto)
+  meson_build gtk4 "$(extract "$(fetch "$U_GTK4")")" \
+    -Dandroid-backend=true -Dandroid-runtime=enabled \
+    -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
+    -Dintrospection=disabled -Ddocumentation=false -Dman-pages=false \
+    -Dbuild-demos=false -Dbuild-testsuite=false -Dbuild-examples=false \
+    -Dbuild-tests=false \
+    -Dvulkan=disabled -Dmedia-gstreamer=disabled -Daccesskit=disabled
+}
+
+build_sigcpp() {
+  # sin meson.options => CERO flags (un flag inexistente = error de meson)
+  meson_build sigc++ "$(extract "$(fetch "$U_SIGCPP")")"
+}
+
+build_glibmm() {
+  # build-documentation (combo) ya desactivado en tarball (if-maintainer-mode);
+  # OJO: aqui NO existe build-tests (no inventarlo)
+  meson_build glibmm "$(extract "$(fetch "$U_GLIBMM")")" -Dbuild-examples=false
+}
+
+build_cairomm() {
+  # sin meson.options => sin flags
+  meson_build cairomm "$(extract "$(fetch "$U_CAIROMM")")"
+}
+
+build_pangomm() {
+  # sin build-tests/build-examples en sus opciones => sin flags
+  meson_build pangomm "$(extract "$(fetch "$U_PANGOMM")")"
+}
+
+build_gtkmm() {
+  meson_build gtkmm "$(extract "$(fetch "$U_GTKMM")")" \
+    -Dbuild-demos=false -Dbuild-tests=false
 }
 
 build_one() {
@@ -364,8 +466,19 @@ build_one() {
     pixman)             build_pixman ;;
     libxslt)            build_libxslt ;;
     boost)              build_boost ;;
-    glib|cairo|gdk-pixbuf|fontconfig|pango|graphene|gtk4|sigc++|glibmm|cairomm|pangomm|gtkmm)
-      pendiente "$1" ;;
+    fontconfig)         build_fontconfig ;;
+    glib)               build_glib ;;
+    libxkbcommon)       build_libxkbcommon ;;
+    gdk-pixbuf)         build_gdk_pixbuf ;;
+    cairo)              build_cairo ;;
+    pango)              build_pango ;;
+    graphene)           build_graphene ;;
+    gtk4)               build_gtk4 ;;
+    sigc++)             build_sigcpp ;;
+    glibmm)             build_glibmm ;;
+    cairomm)            build_cairomm ;;
+    pangomm)            build_pangomm ;;
+    gtkmm)              build_gtkmm ;;
     *) echo "ERROR: lib desconocida '$1'" >&2; exit 1 ;;
   esac
 }

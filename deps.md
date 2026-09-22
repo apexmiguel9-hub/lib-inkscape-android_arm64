@@ -22,7 +22,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | libxslt | 1.1.43 | <https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz> | autotools | Inkscape: `LibXslt REQUIRED`; necesita el shim `libxml-2.0.pc`. **Bajado de 1.1.45**: ésta exige `libxml2 >= 2.15.1` y reusamos el 2.14.6 de Blender (1.1.43 pide solo >= 2.6.27; 1.1.44 no existe, 404) |
 | boost | 1.87.0 | <https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.bz2> | headers + intento de `stacktrace_basic` | ojo: nombre con **guion bajos** `boost_1_87_0` |
 
-## Tier2 — stack GNOME (pendiente)
+## Tier2 — stack GNOME (implementado)
 
 | Lib | Ver | URL | Notas |
 |---|---|---|---|
@@ -38,6 +38,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | cairomm | 1.15.4 | <https://download.gnome.org/sources/cairomm/1.15/cairomm-1.15.4.tar.xz> | serie 1.15 = API/pc `cairomm-1.16` (no existe dir 1.16) |
 | pangomm | 2.58.0 | <https://download.gnome.org/sources/pangomm/2.58/pangomm-2.58.0.tar.xz> | pc congelado `pangomm-2.48` |
 | gtkmm | 4.14.0 | <https://download.gnome.org/sources/gtkmm/4.14/gtkmm-4.14.0.tar.xz> | la usa el propio ExternalProject de Inkscape ⇒ probada con él |
+| libxkbcommon | 1.7.0 | <https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz> | GTK4 la exige (deps oficiales); **1.8.0 no existe** (404); `xkeyboard-config` (datos) = runtime |
 
 Toda la pila mm es **meson** en estas versiones ⇒ no hace falta `mm-common`/autotools.
 
