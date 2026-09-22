@@ -73,6 +73,17 @@ pc fribidi     fribidi   1.0.12  "-lfribidi" "-I\${prefix}/include/fribidi"
 # xml2: layout include/libxml2/ (parser.h confirmado); zlib+zstd plegados en Libs
 # para el link estático (blender lo compiló sin lzma).
 pc libxml-2.0  xml2      2.14.6  "-lxml2 -lz -lzstd -lm" "-I\${prefix}/include/libxml2"
+# epoxy: gtk4/meson.build:561 lee la variable epoxy_has_egl de epoxy.pc
+# (get_variable con default '0'; solo setea HAVE_EGL si == '1'). HAVE_EGL
+# gatea la DECL (gdkglcontextprivate.h:161) y la DEF (gdkglcontext.c:598) de
+# gdk_gl_context_set_egl_native_window => sin la variable, el setup pasa en
+# silencio y peta compilando gdkandroidsurface.c:403 con
+# implicit-function-declaration (run #16). Valor 1 verificado en el binario:
+# dispatch_egl.c.o + egl_generated.h presentes (modo conservative dlopen).
+# Libs SOLO -lepoxy (verificado con nm): egl*/gl* se mapean a punteros
+# epoxy_egl*/epoxy_gl* (D, dentro del .a, p.ej. egl_generated.h:1375
+# '#define eglMakeCurrent epoxy_eglMakeCurrent') => NI -lEGL NI -lGLESv2.
 pc epoxy       epoxy     1.5.10  "-lepoxy"
+printf '%s\n' 'epoxy_has_egl=1' >> "$OUT/epoxy.pc"
 
 echo "OK: $(find "$OUT" -name '*.pc' | wc -l) .pc shim en $OUT"
