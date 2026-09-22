@@ -1,0 +1,134 @@
+name: build-libs
+
+on:
+  workflow_dispatch:
+    inputs:
+      libs:
+        description: 'tier1 | tier2 | all | lista separada por espacios'
+        required: false
+        default: 'tier1'
+      ndk:
+        description: 'Version del NDK (si da problemas probar r30-beta1, la que usa Blender)'
+        required: false
+        default: 'r30'
+
+# Serializar dispatches para no pisarnos en el push
+concurrency:
+  group: build-libs
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Misma receta que blender_wanderson_android/.github/workflows/build-android.yml:
+      # clave de cache = HEAD real de projects.blender.org
+      - name: Resolve precompiled libs commit ID
+        id: libs-commit
+        run: |
+          echo "arm=$(git ls-remote https://projects.blender.org/blender/lib-android_arm64.git HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore blender libs cache
+        id: cache-libs
+        uses: actions/cache/restore@v4
+        with:
+          path: .blender-libs
+          key: libs-android-${{ steps.libs-commit.outputs.arm }}
+
+      - name: Clone precompiled libs (Android ARM64)
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          git clone --depth 1 https://projects.blender.org/blender/lib-android_arm64.git .blender-libs
+          cd .blender-libs
+          git lfs install
+          git lfs pull
+
+      - name: Save blender libs cache
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .blender-libs
+          key: libs-android-${{ steps.libs-commit.outputs.arm }}
+
+      - name: Verify libs (LFS resuelto)
+        run: |
+          set -o pipefail
+          SIZE=$(stat -c%s .blender-libs/zlib/lib/libz.a 2>/dev/null || echo 0)
+          echo "zlib.a: $SIZE bytes"
+          if [ "$SIZE" -lt 1000 ]; then
+            echo "ERROR: puntero LFS sin resolver"
+            exit 1
+          fi
+          test -f .blender-libs/xml2/include/libxml2/libxml/parser.h \
+            || { echo "ERROR: headers libxml2 ausentes"; exit 1; }
+          echo "blender libs OK."
+
+      - name: Cache de tarballs
+        uses: actions/cache@v4
+        with:
+          path: .work/dl
+          key: dl-${{ hashFiles('deps.md') }}
+          restore-keys: dl-
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake meson ninja-build pkg-config \
+            autoconf automake libtool gettext autopoint \
+            bison flex python3 curl ca-certificates git-lfs
+
+      - name: Setup NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ inputs.ndk }}
+          local-cache: true
+
+      - name: Generate pkg-config overlay (libs de Blender no traen .pc)
+        run: bash scripts/gen-pc.sh "$PWD/.blender-libs" "$PWD/pc-overlay"
+
+      - name: Build deps
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          BLENDER_LIBS: ${{ github.workspace }}/.blender-libs
+        run: |
+          chmod +x build/build.sh scripts/gen-pc.sh
+          build/build.sh ${{ inputs.libs }}
+
+      - name: Commit + push (con retry contra carreras)
+        run: |
+          set -o pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Sin cambios que commitear."
+            exit 0
+          fi
+          git commit -m "build(${{ inputs.libs }}): NDK ${{ inputs.ndk }} $(date -u +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do
+            if git push; then exit 0; fi
+            echo "push rechazado (intento $i), rebase y reintento..."
+            git pull --rebase || true
+            sleep 15
+          done
+          echo "ERROR: no se pudo pushear"
+          exit 1
+
+      - name: Resumen
+        run: |
+          {
+            echo "### Libs cosechadas ($(date -u +%Y-%m-%d))"
+            echo '```'
+            du -sh */ 2>/dev/null | sort -k2 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
