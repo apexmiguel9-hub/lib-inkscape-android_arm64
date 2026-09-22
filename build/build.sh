@@ -139,6 +139,7 @@ system = 'android'
 cpu_family = 'aarch64'
 cpu = 'aarch64'
 bits = '64'
+endian = 'little'
 
 [properties]
 sys_root = '$TC/sysroot'
