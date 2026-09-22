@@ -51,7 +51,7 @@ U_ICU="https://github.com/unicode-org/icu/releases/download/release-75-1/icu4c-7
 U_GSL="https://ftp.gnu.org/gnu/gsl/gsl-2.8.tar.gz"
 U_DCONV="https://github.com/google/double-conversion/archive/refs/tags/v3.3.0.tar.gz"
 U_PIXMAN="https://www.cairographics.org/releases/pixman-0.42.2.tar.gz"
-U_LIBXSLT="https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.45.tar.xz"
+U_LIBXSLT="https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz"
 U_BOOST="https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.bz2"
 
 TIER1=(atomic_ops libiconv gettext libffi pcre2 expat bdw-gc lcms2 icu gsl double-conversion pixman libxslt boost)

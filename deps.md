@@ -19,7 +19,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | GSL | 2.8 | <https://ftp.gnu.org/gnu/gsl/gsl-2.8.tar.gz> | autotools | Inkscape: `find_package(GSL REQUIRED)` |
 | double-conversion | 3.3.0 | <https://github.com/google/double-conversion/archive/refs/tags/v3.3.0.tar.gz> | cmake (CONFIG) | Inkscape: `find_package(double-conversion CONFIG REQUIRED)` |
 | pixman | 0.42.2 | <https://www.cairographics.org/releases/pixman-0.42.2.tar.gz> | meson si existe, si no autotools | la necesita cairo |
-| libxslt | 1.1.45 | <https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.45.tar.xz> | autotools | Inkscape: `LibXslt REQUIRED`; necesita el shim `libxml-2.0.pc` |
+| libxslt | 1.1.43 | <https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz> | autotools | Inkscape: `LibXslt REQUIRED`; necesita el shim `libxml-2.0.pc`. **Bajado de 1.1.45**: ésta exige `libxml2 >= 2.15.1` y reusamos el 2.14.6 de Blender (1.1.43 pide solo >= 2.6.27; 1.1.44 no existe, 404) |
 | boost | 1.87.0 | <https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.bz2> | headers + intento de `stacktrace_basic` | ojo: nombre con **guion bajos** `boost_1_87_0` |
 
 ## Tier2 — stack GNOME (pendiente)
