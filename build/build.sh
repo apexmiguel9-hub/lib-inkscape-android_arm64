@@ -55,7 +55,7 @@ U_LIBXSLT="https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.43.tar.xz"
 U_BOOST="https://archives.boost.io/release/1.87.0/source/boost_1_87_0.tar.bz2"
 
 # tier2 — stack GNOME (opciones meson verificadas contra cada tarball)
-U_FONTCONFIG="https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.gz"
+U_FONTCONFIG="https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.17.1/fontconfig-2.17.1.tar.xz"
 U_GLIB="https://download.gnome.org/sources/glib/2.88/glib-2.88.0.tar.xz"
 U_LIBXKBCOMMON="https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz"
 U_GDK_PIXBUF="https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz"
@@ -372,8 +372,20 @@ build_boost() {
 build_fontconfig() {
   # gperf (apt); expat(tier1) + freetype2(blender) via pc/CPPFLAGS
   # cache-build OFF: por defecto EJECUTA fc-cache en install (imposible cross)
+  # 2.17.1: pango 1.58 exige fontconfig >= 2.17.0 (con 2.15 peta en
+  # pango/meson.build:295). Flags verificados 1:1 contra el meson.options
+  # real de 2.17.1; sentinel freetype2 '>= 21.0.15' sigue = shim 21.0.15.
   meson_build fontconfig "$(extract "$(fetch "$U_FONTCONFIG")")" \
     -Ddoc=disabled -Dnls=disabled -Dtests=disabled -Dcache-build=disabled
+  # 2.17 movio freetype2 a Requires.private (2.15 lo tenia PUBLICO con
+  # expat): los consumidores (meson/CMake) consultan sin --static y no lo
+  # verian => enlaces estaticos sin -lfreetype/-lexpat. Forzamos el layout
+  # publico equivalente al de 2.15 (ya validado en cadena con cairo).
+  local pc="$ROOT/fontconfig/lib/pkgconfig/fontconfig.pc"
+  sed -i -E '/^Requires(\.private)?:/d' "$pc"
+  sed -i -E 's/^(Libs:.*)$/Requires: freetype2, expat\n\1/' "$pc"
+  grep -q '^Requires: freetype2, expat$' "$pc" || {
+    echo "ERROR: fontconfig.pc Requires no parcheado a publico" >&2; exit 1; }
 }
 
 build_glib() {

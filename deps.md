@@ -29,7 +29,7 @@ Si un día una URL da 404, actualizar aquí (el cache de Actions usa este archiv
 | glib | 2.88.0 | <https://download.gnome.org/sources/glib/2.88/glib-2.88.0.tar.xz> | meson; necesita pcre2/libffi/iconv/gettext del tier1 |
 | cairo | 1.18.0 | <https://cairographics.org/releases/cairo-1.18.0.tar.xz> | meson; pixman + freetype + png + zlib |
 | gdk-pixbuf | 2.42.12 | <https://download.gnome.org/sources/gdk-pixbuf/2.42/gdk-pixbuf-2.42.12.tar.xz> | loaders (riesgo 4 del README) |
-| fontconfig | 2.15.0 | <https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.gz> | **2.16 no existe** (404); expat + freetype2 |
+| fontconfig | 2.17.1 | <https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.17.1/fontconfig-2.17.1.tar.xz> | pango 1.58 exige `fontconfig >= 2.17.0`; el release dir oficial se paró en 2.16 (2.15/2.16 siguen ahí); sha256 `9f5cae93f4fffc1fbc05ae99cdfc708cd60dfd6612ffc0512827025c026fa541`; sentinel `freetype_req = '>= 21.0.15'` sigue = shim 21.0.15 |
 | pango | 1.58.0 | <https://download.gnome.org/sources/pango/1.58/pango-1.58.0.tar.xz> | par estables: dirs 1.54-1.58, `1.90` es dev |
 | graphene | 1.10.8 | <https://download.gnome.org/sources/graphene/1.10/graphene-1.10.8.tar.xz> | meson, minúscula |
 | gtk | 4.22.5 | <https://download.gnome.org/sources/gtk/4.22/gtk-4.22.5.tar.xz> | `-Dandroid-backend=true -Dandroid-runtime=true`; 5 parches = maduro |
