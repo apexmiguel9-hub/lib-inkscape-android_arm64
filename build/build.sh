@@ -427,8 +427,20 @@ build_glib() {
   # --shared: glib/gobject/gio/gmodule salen como .so (modelo oficial
   # gtk-android-builder) -> libgtk-4.so y libinkscape_base.so dejan de
   # embeberse copias estaticas del runtime (doble-GLib/GType -> assert).
-  # El sed de variables-tools de abajo SIGUE igual (tools del HOST).
-  meson_build glib "$(extract "$(fetch "$U_GLIB")")" --shared \
+  local src
+  src="$(extract "$(fetch "$U_GLIB")")"
+  # g_set_user_dirs es '/*< private > */' en GLib (no esta en gutils.h, nose
+  # declara publicamente): con -fvisibility=hidden (GLib lo activa en build
+  # shared) el simbolo queda LOCAL/HIDDEN y NO se exporta en libglib-2.0.so.
+  # GTK4 la declara por su cuenta y la usa (gdk/android/gdkandroidruntime.c)
+  # -> 'undefined symbol: g_set_user_dirs' al enlazar libgtk-4.so contra la
+  # .so (con la .a vieja se resolvia extrayendo el miembro). Fix: forzar
+  # visibilidad default en la definicion (parche de fuente, patron del repo).
+  sed -i 's|^g_set_user_dirs (const gchar \*first_dir_type,$|__attribute__((visibility("default")))\ng_set_user_dirs (const gchar *first_dir_type,|' \
+    "$src/glib/gutils.c"
+  grep -q '__attribute__((visibility("default")))' "$src/glib/gutils.c" || {
+    echo "ERROR: parche de visibilidad g_set_user_dirs no aplicado" >&2; exit 1; }
+  meson_build glib "$src" --shared \
     -Dtests=false -Dinstalled_tests=false -Dman=false -Ddocumentation=false \
     -Dnls=disabled -Dintrospection=disabled \
     -Dselinux=disabled -Dlibmount=disabled
