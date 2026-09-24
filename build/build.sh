@@ -596,6 +596,20 @@ build_gtk4() {
   ! grep -q 'gdk_touch_event_new' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: queda gdk_touch_event_new sin parchear en gdkandroidevents.c" >&2; exit 1; }
 
+  # --- FASE 10B: touch slop (temblor del dedo tolerado) ---------------------
+  # Con el dedo emulado como raton, el minimo micro-movimiento del dedo al
+  # tocar (jitter) producia MOTION de 1-2 px que cancelaba clicks "sloppy"
+  # de GtkButton ("a veces hay que darle 2 veces") y arrancaba rubber-bands /
+  # select-boxes accidentales. Se ancla el motion al punto de press hasta
+  # superar ~8 css px (~8dp Android, ViewConfiguration.TOUCH_SLOP); a partir
+  # de ahi el dedo sigue la posicion real (drag/dibujo genuino).
+  python3 "$ROOT/patches/gtk4-touch-slop.py" "$src" \
+    || { echo "ERROR: parche FASE10B touch-slop no aplico en gtk 4.22.5" >&2; exit 1; }
+  grep -q 'FASE10B-SLOP' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE10B-SLOP fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'g_touch_slop' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE10B g_touch_slop fallo en gdkandroidevents.c" >&2; exit 1; }
+
   meson_build gtk4 "$src" \
     -Dandroid-backend=true -Dandroid-runtime=enabled \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
