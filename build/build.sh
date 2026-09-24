@@ -258,15 +258,21 @@ cmake_build() { # cmake_build <nombre> <srcdir> [opts cmake...]
   harvest "$name"
 }
 
-meson_build() { # meson_build <nombre> <srcdir> [opts meson...]
+meson_build() { # meson_build <nombre> <srcdir> [--shared] [opts meson...]
   local name="$1" src="$2"; shift 2
+  # --shared: SOLO la familia glib (build_glib) sale como .so; el resto de
+  # tier2 sigue static. Flag explicito (en vez de -Ddefault_library=shared
+  # suelto en "$@"): meson ya recibe --default-library=static antes y la
+  # semantica de ultimo-gana para opciones repetidas no esta garantizada.
+  local dl=static
+  if [[ "${1:-}" == "--shared" ]]; then dl=shared; shift; fi
   rm -rf "$WORK/build-$name"
   # nofallback: que NINGUN proyecto vendee subprojects en silencio (fontconfig
   # se colo con freetype2). Si falta un .pc, peta aqui y lo arreglamos de raiz.
   meson setup "$WORK/build-$name" "$src" \
     --cross-file "$WORK/cross.ini" \
     --prefix="$STG/$name" --libdir=lib \
-    --default-library=static --buildtype=release \
+    --default-library="$dl" --buildtype=release \
     --wrap-mode=nofallback \
     "$@" || {
       echo "=== meson setup de '$name' fallo; tail de meson-log.txt ===" >&2
@@ -418,7 +424,11 @@ build_fontconfig() {
 build_glib() {
   # pcre2/libffi/zlib del tier1 y blender via pc; selinux/libmount ausentes
   # por aislamiento de pc pero los apagamos explicitos
-  meson_build glib "$(extract "$(fetch "$U_GLIB")")" \
+  # --shared: glib/gobject/gio/gmodule salen como .so (modelo oficial
+  # gtk-android-builder) -> libgtk-4.so y libinkscape_base.so dejan de
+  # embeberse copias estaticas del runtime (doble-GLib/GType -> assert).
+  # El sed de variables-tools de abajo SIGUE igual (tools del HOST).
+  meson_build glib "$(extract "$(fetch "$U_GLIB")")" --shared \
     -Dtests=false -Dinstalled_tests=false -Dman=false -Ddocumentation=false \
     -Dnls=disabled -Dintrospection=disabled \
     -Dselinux=disabled -Dlibmount=disabled
