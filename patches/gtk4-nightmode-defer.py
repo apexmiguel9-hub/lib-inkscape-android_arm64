@@ -1,26 +1,38 @@
 #!/usr/bin/env python3
-# FASE 6 - fix minimo del deadlock de inicializacion GTK4-android (gtk 4.22.5).
+# FASE 6B - fix minimo del deadlock de inicializacion GTK4-android (gtk 4.22.5).
 #
-# Mecanismo del deadlock (confirmado en FASE 5, dispositivo Moto g56):
+# Mecanismo del deadlock (confirmado en FASE 5 y 6, dispositivo Moto g56):
 #   _gdk_android_toplevel_bind_native() corre dentro del runnable
 #   sincronizante de GlibContext.blockForMain(), que mantiene al hilo
-#   principal de Android esperando en un CountDownLatch. Al final de ese
-#   bind, gdk_android_display_update_night_mode() emite de forma reentrante
-#   gdk_display_setting_changed() + g_object_notify_by_pspec("night-mode");
-#   la cadena de notificacion (night_mode_changed -> update_window ->
-#   postWindowConfiguration, y el arranque de GtkSettings/theme) necesita
-#   trabajo que solo puede completar el hilo principal, que esta bloqueado
-#   esperando a que este MISMO runnable termine => espera circular: bind
-#   nunca retorna y el CountDownLatch nunca se libera.
+#   principal de Android esperando en un CountDownLatch. Emitir el commit de
+#   night-mode (gdk_display_setting_changed + g_object_notify_by_pspec) con
+#   el hilo principal aun bloqueado en el latch es una espera circular: la
+#   cadena de notificacion (night_mode_changed -> update_window ->
+#   postWindowConfiguration) necesita trabajo del hilo principal, que no
+#   avanza hasta que este runnable retorne.
 #
-# Fix: mientras el bind inicial esta activo (android_bind_depth > 0), el
-# commit de night-mode (asignacion + setting_changed + notify) se difiere a
-# un idle del main context de GLib; se aplica cuando el runnable ya termino,
-# el latch fue liberado y el hilo principal puede avanzar. Sin cambios de
-# API: solo control de flujo + un idle, sin tocar nada mas del backend.
+# FASE 6 diferia el commit a un g_idle del main context: el bind ya termina,
+# PERO el idle corre apenas retorna el bind, cuando el latch todavia no se
+# libero (el runnable de la activity por am-start aun esta en cola), y la
+# cadena de notificacion se traba igual -> main context muerto, latch sin
+# liberar, splash infinito (F6-BIND-END ... F6-CONFIG-RUN ... solo eso).
+#
+# Fix FASE 6B (un cambio minimo, sin arquitectura nueva):
+#   * Durante el bind inicial (android_bind_depth > 0) el cambio de
+#     night-mode SOLO se marca pendiente (night_mode_pending, ultimo valor
+#     gana). NO se programa ningun idle -> el main context sigue vivo.
+#   * El commit real (setting_changed + notify) lo dispara Java
+#     (ToplevelActivity.onCreate) DESPUES de blockForMain(), con el latch ya
+#     liberado, via GlibContext.runOnMain() ->
+#     gdk_android_display_commit_pending_night_mode() (registrado como
+#     metodo nativo "commitPendingNightMode" en GlibContext).
+#   * El commit consume el pendiente antes de emitir: no-op si no hay valor
+#     pendiente (permite N activities llamandolo; no hay doble notify).
+#   * Fuera del bind (config changes posteriores) el commit es directo,
+#     como en el backend original.
 #
 # Uso: python3 gtk4-nightmode-defer.py <srcdir-gtk-4.22.5>
-#   Aplica 4 sustituciones exactas (1 coincidencia cada una) y aborta si
+#   Aplica sustituciones exactas (1 coincidencia cada una) y aborta si
 #   cualquier texto esperado no aparece exactamente una vez.
 
 import os
@@ -49,18 +61,19 @@ gdk_android_display_update_night_mode (GdkAndroidDisplay *self, jobject context)
 """
 
 PREAMBLE = """\
-/* FASE 6: diferir el commit de night-mode fuera de la seccion critica del
- * bind inicial. Mientras _gdk_android_toplevel_bind_native corre dentro del
- * runnable sincronizante de GlibContext.blockForMain (el hilo principal de
- * Android esperando el CountDownLatch), emitir gdk_display_setting_changed /
- * g_object_notify de forma reentrante puede bloquear al hilo GTK esperando
- * trabajo que solo puede completar el hilo principal (espera circular).
- * El commit se difiere a un idle del main context y se aplica cuando el
- * runnable ya termino y el latch fue liberado.
+/* FASE 6B: diferir el commit de night-mode hasta que el latch de
+ * blockForMain este liberado. FASE 6 lo diferia a un g_idle del main
+ * context, pero el idle corre apenas termina el bind, con el hilo principal
+ * aun bloqueado en el CountDownLatch: la cadena de notificacion
+ * (night_mode_changed -> update_window -> postWindowConfiguration)
+ * necesita el hilo principal libre y se traba igual. En FASE 6B el cambio
+ * se marca pendiente durante el bind (sin idle; el main context sigue
+ * vivo) y el commit real se dispara desde Java (ToplevelActivity.onCreate)
+ * DESPUES de blockForMain(), con el latch ya liberado, via
+ * gdk_android_display_commit_pending_night_mode().
  */
 static guint android_bind_depth = 0;
 static GdkAndroidDisplayNightMode night_mode_pending = GDK_ANDROID_DISPLAY_NIGHT_UNDEFINED;
-static guint night_mode_pending_idle = 0;
 
 static void
 gdk_android_display_set_night_mode (GdkAndroidDisplay *self,
@@ -75,18 +88,20 @@ gdk_android_display_set_night_mode (GdkAndroidDisplay *self,
   g_object_notify_by_pspec ((GObject *) self, obj_properties[PROP_NIGHT_MODE]);
 }
 
-static gboolean
-gdk_android_display_night_mode_pending_cb (gpointer user_data)
+void
+gdk_android_display_commit_pending_night_mode (void)
 {
-  GdkAndroidDisplay *self = GDK_ANDROID_DISPLAY (user_data);
+  GdkAndroidDisplay *display = gdk_android_display_get_display_instance ();
 
-  night_mode_pending_idle = 0;
-  g_message ("F6-CONFIG-RUN commit night-mode diferido (mode=%d)", night_mode_pending);
-  gdk_android_display_set_night_mode (self, night_mode_pending);
+  if (night_mode_pending == GDK_ANDROID_DISPLAY_NIGHT_UNDEFINED)
+    return;
+
+  GdkAndroidDisplayNightMode pending = night_mode_pending;
   night_mode_pending = GDK_ANDROID_DISPLAY_NIGHT_UNDEFINED;
-  g_object_unref (self);
 
-  return G_SOURCE_REMOVE;
+  g_message ("F6B-NIGHT-COMMIT-BEGIN commit night-mode pendiente (mode=%d)", pending);
+  gdk_android_display_set_night_mode (display, pending);
+  g_message ("F6B-NIGHT-COMMIT-END");
 }
 
 void
@@ -118,22 +133,15 @@ NEW_TAIL = """\
   if (self->night_mode == night_mode)
     return;
 
-  if (android_bind_depth > 0 || night_mode_pending_idle > 0)
+  if (android_bind_depth > 0)
     {
-      /* commit pendiente: el ultimo valor gana; el idle lo aplica fuera del
-       * runnable sincronizante (sin reentrancia hacia el hilo principal). */
+      /* arranque en curso: el hilo principal sigue bloqueado en el latch de
+       * blockForMain hasta que este bind retorne. Solo marcar pendiente (el
+       * ultimo valor gana); el commit real lo dispara Java tras liberar el
+       * latch (gdk_android_display_commit_pending_night_mode). Nada de
+       * idle: el main context debe seguir despachando runnables. */
       night_mode_pending = night_mode;
-      if (night_mode_pending_idle == 0)
-        {
-          night_mode_pending_idle = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
-                                                     gdk_android_display_night_mode_pending_cb,
-                                                     g_object_ref (self), NULL);
-          g_message ("F6-CONFIG-DEFER commit night-mode diferido (idle %u)", night_mode_pending_idle);
-        }
-      else
-        {
-          g_message ("F6-CONFIG-DEFER valor night-mode actualizado (idle ya pendiente)");
-        }
+      g_message ("F6B-NIGHT-PENDING night-mode pendiente (mode=%d)", night_mode);
       return;
     }
 
@@ -156,7 +164,7 @@ OLD_BIND = """\
 
 NEW_BIND = """\
   gdk_android_display_begin_bind ();
-  g_message ("F6-BIND-BEGIN bind inicial de toplevel %p (seccion critica activa)", self);
+  g_message ("F6B-BIND-BEGIN bind inicial de toplevel %p (seccion critica activa)", self);
 
   (*env)->CallVoidMethod (env, this, gdk_android_get_java_cache ()->toplevel.attach_toplevel_surface);
 
@@ -165,7 +173,7 @@ NEW_BIND = """\
 
   gdk_android_display_update_night_mode (display, this);
 
-  g_message ("F6-BIND-END bind inicial terminado (%p)", self);
+  g_message ("F6B-BIND-END bind inicial terminado (%p)", self);
   gdk_android_display_end_bind ();
 }
 """
@@ -182,6 +190,29 @@ void gdk_android_display_update_night_mode (GdkAndroidDisplay *self, jobject con
 
 void gdk_android_display_begin_bind (void);
 void gdk_android_display_end_bind (void);
+void gdk_android_display_commit_pending_night_mode (void);
+"""
+
+# ---------------------------------------------------------------------------
+# gdk/android/gdkandroidinit.c  (registro JNI: commitPendingNightMode)
+# ---------------------------------------------------------------------------
+OLD_INIT = """\
+static const JNINativeMethod glib_context_natives[] = {
+  { .name = "runOnMain", .signature = "(Ljava/lang/Runnable;)V", .fnPtr = _gdk_android_glib_context_run_on_main }
+};
+"""
+
+NEW_INIT = """\
+static void
+_gdk_android_glib_context_commit_pending_night_mode (JNIEnv *env, jclass this)
+{
+  gdk_android_display_commit_pending_night_mode ();
+}
+
+static const JNINativeMethod glib_context_natives[] = {
+  { .name = "runOnMain", .signature = "(Ljava/lang/Runnable;)V", .fnPtr = _gdk_android_glib_context_run_on_main },
+  { .name = "commitPendingNightMode", .signature = "()V", .fnPtr = _gdk_android_glib_context_commit_pending_night_mode }
+};
 """
 
 
@@ -198,7 +229,10 @@ if __name__ == "__main__":
         (OLD_BIND, NEW_BIND, "bind_native seccion critica"),
     ])
     patch_one(os.path.join(base, "gdk/android/gdkandroiddisplay-private.h"), [
-        (OLD_HDR, NEW_HDR, "prototypes begin/end bind"),
+        (OLD_HDR, NEW_HDR, "prototypes begin/end/commit bind"),
+    ])
+    patch_one(os.path.join(base, "gdk/android/gdkandroidinit.c"), [
+        (OLD_INIT, NEW_INIT, "registro JNI commitPendingNightMode"),
     ])
 
-    print("OK: gtk4-nightmode-defer aplicado sobre %s" % base)
+    print("OK: gtk4-nightmode-defer (FASE 6B) aplicado sobre %s" % base)
