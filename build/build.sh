@@ -610,6 +610,20 @@ build_gtk4() {
   grep -q 'g_touch_slop' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: verificacion FASE10B g_touch_slop fallo en gdkandroidevents.c" >&2; exit 1; }
 
+  # --- FASE 10C: fix NULL deref en el keymap android (crasheo al teclear) -----
+  # Crash real (crash-stack.txt FASE8): TextTool::root_handler ->
+  # get_latin_keyval_impl -> gdk_display_translate_key -> translate_keyboard_state
+  # -> SIGSEGV. get_latin_keyval_impl (tool-base.cpp) pasa effective_group=NULL
+  # y el backend android hacia `if (*effective_group)` (deref sin validar el OUT
+  # param). Con el contrato GdkKeymap los OUT params son opcionales: se valida el
+  # puntero como hace el resto del backend (if (level) ...).
+  python3 "$ROOT/patches/gtk4-keymap-null-deref.py" "$src" \
+    || { echo "ERROR: parche FASE10C keymap no aplico en gtk 4.22.5" >&2; exit 1; }
+  grep -q 'FASE10C-KEYMAP' "$src/gdk/android/gdkandroidkeymap.c" \
+    || { echo "ERROR: verificacion FASE10C-KEYMAP fallo en gdkandroidkeymap.c" >&2; exit 1; }
+  ! grep -q 'if (\*effective_group)' "$src/gdk/android/gdkandroidkeymap.c" \
+    || { echo "ERROR: queda el deref NULL sin arreglar en gdkandroidkeymap.c" >&2; exit 1; }
+
   meson_build gtk4 "$src" \
     -Dandroid-backend=true -Dandroid-runtime=enabled \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
