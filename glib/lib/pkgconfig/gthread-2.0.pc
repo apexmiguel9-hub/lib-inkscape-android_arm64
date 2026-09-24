@@ -6,5 +6,6 @@ Name: GThread
 Description: Thread support for GLib
 Version: 2.88.0
 Requires: glib-2.0
-Libs: -L${libdir} -lgthread-2.0 -pthread -lintl -liconv
+Libs: -L${libdir} -lgthread-2.0 -pthread
+Libs.private: -lintl -liconv
 Cflags: -I${includedir} -pthread
