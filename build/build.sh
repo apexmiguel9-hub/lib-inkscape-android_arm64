@@ -580,6 +580,22 @@ build_gtk4() {
   grep -q 'commitPendingNightMode' "$src/gdk/android/gdkandroidinit.c" \
     || { echo "ERROR: registro JNI commitPendingNightMode fallo en gdkandroidinit.c" >&2; exit 1; }
 
+  # --- FASE 10: dedo primario = puntero (touch->mouse) ----------------------
+  # GTK4 ya NO sintetiza touch->mouse (GTK3/X11 lo hacia): con GDK_TOUCH_* puro
+  # los GtkGestureClick de los botones no reciben click (el GestureDrag
+  # touch-only del GtkScrolledWindow captura al minimo movimiento -> no se
+  # tocan tools/colores) y el lienzo de inkscape (solo puntero) no dibuja.
+  # Emulamos el dedo primario como boton izquierdo (tap=click, arrastre=drag);
+  # los dedos extra se ignoran (reservados para pinch/pan en la FASE 11).
+  python3 "$ROOT/patches/gtk4-touch-as-pointer.py" "$src" \
+    || { echo "ERROR: parche FASE10 touch-as-pointer no aplico en gtk 4.22.5" >&2; exit 1; }
+  grep -q 'FASE10-TOUCH-AS-POINTER' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE10-TOUCH-AS-POINTER fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'AMOTION_EVENT_TOOL_TYPE_FINGER' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE10 finger-motion fallo en gdkandroidevents.c" >&2; exit 1; }
+  ! grep -q 'gdk_touch_event_new' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: queda gdk_touch_event_new sin parchear en gdkandroidevents.c" >&2; exit 1; }
+
   meson_build gtk4 "$src" \
     -Dandroid-backend=true -Dandroid-runtime=enabled \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
