@@ -562,6 +562,20 @@ build_gtk4() {
     || { echo "ERROR: sed de hb.h no aplico en gtkmain.c" >&2; exit 1; }
   ! grep -q 'hb_glib' "$src/gtk/gtkmain.c" \
     || { echo "ERROR: queda hb_glib sin parchear en gtkmain.c" >&2; exit 1; }
+
+  # --- FASE 6: diferir commit de night-mode fuera del bind critico ----------
+  # (deadlock de inicializacion: update_night_mode emitia setting_changed +
+  # notify dentro del runnable sincronizante de blockForMain; el hilo GTK
+  # esperaba trabajo que solo puede completar el hilo principal, y este
+  # esperaba el CountDownLatch => espera circular en el bind inicial).
+  # Sin cambios de API: solo control de flujo + commit via g_idle.
+  python3 "$ROOT/patches/gtk4-nightmode-defer.py" "$src" \
+    || { echo "ERROR: parche F6 nightmode-defer no aplico en gtk 4.22.5" >&2; exit 1; }
+  grep -q 'F6-CONFIG-DEFER' "$src/gdk/android/gdkandroiddisplay.c" \
+    || { echo "ERROR: verificacion F6-CONFIG-DEFER fallo en gdkandroiddisplay.c" >&2; exit 1; }
+  grep -q 'F6-BIND-BEGIN' "$src/gdk/android/gdkandroidtoplevel.c" \
+    || { echo "ERROR: verificacion F6-BIND-BEGIN fallo en gdkandroidtoplevel.c" >&2; exit 1; }
+
   meson_build gtk4 "$src" \
     -Dandroid-backend=true -Dandroid-runtime=enabled \
     -Dx11-backend=false -Dwayland-backend=false -Dbroadway-backend=false \
