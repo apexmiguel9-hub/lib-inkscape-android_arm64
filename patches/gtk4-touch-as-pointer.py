@@ -25,10 +25,24 @@ DIAG g56 06:36: 55/55 presses -> GdkAndroidToplevel, 0 -> GdkAndroidPopup), asi
 que un popover abierto jamas recibe el click y GTK lo descarta como press
 "fuera" (el menu PopoverMenuBar se cierra al tocar un item; igual con los
 popovers de color picker). Un compositor rutearia el puntero al surface bajo el
-cursor: se elige por geometria el popup visible (child del toplevel) que
-contiene el punto, y el evento se emite sobre ESE surface con las coords
-traducidas a su espacio (x - cfg.x/scale, y - cfg.y/scale). Sin popup bajo el
-dedo, target = toplevel (comportamiento identico al previo).
+cursor: elegimos por geometria el popup visible (child del toplevel) que
+contiene el punto y emitimos sobre ESE surface con coords traducidas.
+
+FASE 11C-ROUTE (determinista; reemplaza la logica de 11B):
+  * El hit-test de Android es INESTABLE: un toque dentro del rect del popup a
+    veces llega al SurfaceView del popup (coords locales) y a veces al del
+    toplevel (coords del toplevel), segun una carrera de z/visibilidad.
+    Normalizamos las coords AMotionEvent al espacio CSS del TOPLEVEL: escalamos
+    con el cfg.scale DEL TOPLEVEL (estable; el cfg del popup recien presentado
+    es 0/1 hasta el primer layout) y sumamos el ORIGEN del surface receptor
+    (popup_bounds acumulado via ancestros; 0 si el receptor es el toplevel).
+  * El pick por geometria usa popup_bounds (SINCRONO: se fija en present()
+    ANTES del layout async de Java) en vez de cfg (ASYNC: 0,0,0,0 hasta el
+    primer on_layout -> la carrera que cerraba los menus en el primer tap
+    rapido tras abrirlos).
+  * Target PEGAJOSO por gesto: el DOWN fija la superficie y MOVE/UP se quedan
+    en ella aunque el dedo salga del rect (un drag sobre el popover de color /
+    slider no salta al canvas y no arranca un select box).
 
 Uso (desde build.sh):
   python3 "$ROOT/patches/gtk4-touch-as-pointer.py" "$src"
@@ -77,31 +91,53 @@ NEW = [
     "       * puntero con boton izquierdo: tap = click, arrastre = drag (dibujar).",
     "       * Los dedos adicionales se ignoran (reservados para pinch/pan en FASE11).",
     "       *",
-    "       * FASE11B-ROUTE: el target del evento es el surface bajo el dedo (popup",
-    "       * visible si lo hay segun geometria, si no el toplevel) y las coords se",
-    "       * traducen al espacio de ese surface (x - cfg.x/scale). */",
+    "       * FASE11C-ROUTE: ruteo determinista del puntero sintetico (ver helpers",
+    "       * abajo). El toque puede llegar en el view del toplevel o en el del",
+    "       * popup (hit-test Android inestable); normalizamos las coords al espacio",
+    "       * CSS del toplevel, elegimos por geometria el popup bajo el dedo con",
+    "       * popup_bounds SINCRONO (nunca cfg, evita la carrera del primer tap) y",
+    "       * fijamos el target del gesto en el DOWN (drag no salta al canvas). */",
     "      (void) event_identifier;",
     "",
     "      size_t pointers = AMotionEvent_getPointerCount (event);",
     "      if (pointers > 0)",
     "        {",
-    "          gfloat x = AMotionEvent_getX (event, 0) / surface->cfg.scale;",
-    "          gfloat y = AMotionEvent_getY (event, 0) / surface->cfg.scale;",
+    "          /* FASE11C-ROUTE: superficie toplevel del receptor + origen (css) del",
+    "           * receptor respecto a ese toplevel (0 si el receptor ES el toplevel). */",
+    "          GdkAndroidSurface *toplevel = (GdkAndroidSurface *) gdk_android_surface_get_toplevel (surface);",
+    "          gfloat recv_ox = 0.0f, recv_oy = 0.0f;",
+    "          if (toplevel != surface)",
+    "            gdk_android_surface_popup_offset (surface, toplevel, &recv_ox, &recv_oy);",
     "",
-    "          /* FASE11B-ROUTE: Android entrega SIEMPRE el toque al view del toplevel;",
-    "           * sin este ruteo un popover abierto (menu PopoverMenuBar, popover de",
-    "           * color) jamas recibe el click: GTK lo ve como press 'fuera' y lo",
-    "           * descarta (el menu se cierra al tocar un item). Elegimos por geometria",
-    "           * el popup visible bajo el dedo; target = toplevel si no hay ninguno. */",
-    "          GdkAndroidSurface *target = gdk_android_surface_pick_child (surface, x, y);",
+    "          /* coords en el espacio CSS del toplevel, scale del toplevel (estable). */",
+    "          gfloat x = AMotionEvent_getX (event, 0) / toplevel->cfg.scale + recv_ox;",
+    "          gfloat y = AMotionEvent_getY (event, 0) / toplevel->cfg.scale + recv_oy;",
+    "",
+    "          /* target del gesto: el DOWN lo fija (pegajoso para MOVE/UP); si no",
+    "           * hay gesto activo se re-pickea por geometria. */",
+    "          GdkAndroidSurface *target;",
+    "          if (masked_action == AMOTION_EVENT_ACTION_DOWN)",
+    "            {",
+    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f);",
+    "              g_touch_drag_surface = target;",
+    "            }",
+    "          else if (g_touch_drag_surface != NULL)",
+    "            {",
+    "              target = g_touch_drag_surface;",
+    "            }",
+    "          else",
+    "            {",
+    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f);",
+    "            }",
     "",
     "          switch (masked_action)",
     "            {",
     "            case AMOTION_EVENT_ACTION_DOWN:",
     "              {",
     "                guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_PRIMARY;",
-    "                gfloat pcx = target == surface ? 0 : target->cfg.x / target->cfg.scale;",
-    "                gfloat pcy = target == surface ? 0 : target->cfg.y / target->cfg.scale;",
+    "                gfloat pcx = 0.0f, pcy = 0.0f;",
+    "                if (target != toplevel)",
+    "                  gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
     "                gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
     "                                                      GDK_BUTTON_PRIMARY,",
     "                                                      target, event, dev,",
@@ -114,8 +150,9 @@ NEW = [
     "            case AMOTION_EVENT_ACTION_MOVE:",
     "              {",
     "                GdkDeviceTool *tool = gdk_android_seat_get_device_tool (display->seat, AMOTION_EVENT_TOOL_TYPE_FINGER);",
-    "                gfloat pcx = target == surface ? 0 : target->cfg.x / target->cfg.scale;",
-    "                gfloat pcy = target == surface ? 0 : target->cfg.y / target->cfg.scale;",
+    "                gfloat pcx = 0.0f, pcy = 0.0f;",
+    "                if (target != toplevel)",
+    "                  gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
     "                GdkEvent *ev = gdk_motion_event_new ((GdkSurface *) target, dev, tool,",
     "                                                     time, mods,",
     "                                                     x - pcx, y - pcy,",
@@ -128,8 +165,9 @@ NEW = [
     "            case AMOTION_EVENT_ACTION_CANCEL:",
     "              {",
     "                guint32 state = dev_impl->button_state & ~AMOTION_EVENT_BUTTON_PRIMARY;",
-    "                gfloat pcx = target == surface ? 0 : target->cfg.x / target->cfg.scale;",
-    "                gfloat pcy = target == surface ? 0 : target->cfg.y / target->cfg.scale;",
+    "                gfloat pcx = 0.0f, pcy = 0.0f;",
+    "                if (target != toplevel)",
+    "                  gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
     "                if (GDK_ANDROID_EVENTS_BUTTON_IS_DIFFERENT (state, dev_impl->button_state, AMOTION_EVENT_BUTTON_PRIMARY))",
     "                  gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
     "                                                        GDK_BUTTON_PRIMARY,",
@@ -137,6 +175,7 @@ NEW = [
     "                                                        time, mods,",
     "                                                        x - pcx, y - pcy);",
     "                dev_impl->button_state = state;",
+    "                g_touch_drag_surface = NULL;",
     "                gdk_android_device_maybe_update_surface ((GdkAndroidDevice *) dev, target, mods, time, x - pcx, y - pcy);",
     "              }",
     "              break;",
@@ -147,37 +186,88 @@ NEW = [
     "    }",
 ]
 
-# FASE11B-ROUTE: helper de pick por geometria (popup visible bajo el dedo).
-# Se inserta ANTES de gdk_android_events_handle_motion_event (ancla unica:
-# la firma solo existe una vez en gdkandroidevents.c; el prototipo vive en
-# gdkandroidevents-private.h con otro formato).
-HELPER = """/* FASE11B-ROUTE: surface bajo el dedo para el puntero sintetico.
- * children de un toplevel = sus popups (g_list_prepend => el mas reciente /
- * topmost queda primero). cfg.x/y/width/height son px del view (layout de
- * Java); /scale => coords CSS del toplevel, el mismo espacio que las coords
- * de AMotionEvent. Devuelve el popup visible cuyo rect CSS contiene (x, y);
- * si no hay ninguno, el propio toplevel (comportamiento identico al previo). */
+# FASE11C-ROUTE: helpers de ruteo del puntero sintetico (ver docstring).
+# Se insertan ANTES de gdk_android_events_handle_motion_event (ancla unica:
+# la firma solo existe una vez en gdkandroidevents.c).
+HELPER = """/* FASE11C-ROUTE: helpers de ruteo del puntero sintetico (dedo primario).
+ *
+ * 1) gdk_android_surface_popup_offset: origen CSS de un surface respecto al
+ *    toplevel. Un GdkAndroidPopup cuyo padre NO es el toplevel queda anidado:
+ *    su popup_bounds esta en el espacio de SU padre, asi que se suman los
+ *    popup_bounds de si mismo y de cada ancestro. El toplevel -> (0, 0).
+ * 2) gdk_android_surface_pick_child: popup visible cuyo rect CSS (basado en
+ *    popup_bounds, NUNCA en cfg) contiene el punto, en coords CSS del
+ *    toplevel. children usa g_list_prepend => el mas reciente/topmost queda
+ *    primero; se recursa primero en los hijos (vienen encima del padre).
+ *    popup_bounds se fija en present() de forma SINCRONA, antes del layout
+ *    async de Java (cfg seria 0,0,0,0 hasta el primer on_layout => la carrera
+ *    que cerraba los menus al tocar un item justo tras abrirlos). NULL si no
+ *    hay ningun popup bajo el dedo.
+ * 3) g_touch_drag_surface: target pegajoso del gesto (fijado en el DOWN) para
+ *    que un drag que se salga del rect del popover no salte al canvas. */
+
+static GdkAndroidSurface *g_touch_drag_surface = NULL;
+
+static void
+gdk_android_surface_popup_offset (GdkAndroidSurface *surface,
+                                  GdkAndroidSurface *toplevel,
+                                  gfloat           *ox,
+                                  gfloat           *oy)
+{
+  gfloat x = 0.0f, y = 0.0f;
+
+  for (GdkAndroidSurface *s = surface; s != toplevel && s != NULL; s = (GdkAndroidSurface *) GDK_SURFACE (s)->parent)
+    {
+      GdkAndroidPopup *popup = GDK_ANDROID_POPUP (s);
+      x += popup->popup_bounds.x;
+      y += popup->popup_bounds.y;
+    }
+
+  *ox = x;
+  *oy = y;
+}
+
 static GdkAndroidSurface *
 gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
+                                GdkAndroidSurface *node,
                                 gfloat             x,
-                                gfloat             y)
+                                gfloat             y,
+                                gfloat             rx,
+                                gfloat             ry)
 {
-  GdkSurface *parent_surface = (GdkSurface *) toplevel;
-
-  for (GList *l = parent_surface->children; l != NULL; l = l->next)
+  for (GList *l = GDK_SURFACE (node)->children; l != NULL; l = l->next)
     {
       GdkAndroidSurface *child = l->data;
       if (!child->visible)
         continue;
-      gfloat cx = child->cfg.x / child->cfg.scale;
-      gfloat cy = child->cfg.y / child->cfg.scale;
-      gfloat cw = child->cfg.width / child->cfg.scale;
-      gfloat ch = child->cfg.height / child->cfg.scale;
+
+      GdkAndroidPopup *popup = GDK_ANDROID_POPUP (child);
+      gfloat cx = rx + popup->popup_bounds.x;
+      gfloat cy = ry + popup->popup_bounds.y;
+      gfloat cw = popup->popup_bounds.width;
+      gfloat ch = popup->popup_bounds.height;
+
+      if (cw <= 0.0f || ch <= 0.0f)
+        continue;
+
       if (x >= cx && x < cx + cw && y >= cy && y < cy + ch)
-        return child;
+        {
+          GdkAndroidSurface *inner = gdk_android_surface_pick_child (toplevel, child, x, y, cx, cy);
+          if (inner != NULL)
+            return inner;
+          return child;
+        }
     }
-  return toplevel;
+
+  return NULL;
 }"""
+
+# FASE11C-ROUTE: include necesario para GdkAndroidPopup / popup_bounds /
+# gdk_android_surface_get_toplevel (gdkandroidpopup-private.h trae tambien
+# gdkandroidsurface-private.h, que declara ese prototype).
+INCLUDE_OLD = '#include "gdkandroidevents-private.h"\n'
+INCLUDE_NEW = ('#include "gdkandroidevents-private.h"\n'
+               '#include "gdkandroidpopup-private.h"\n')
 
 
 def main() -> int:
@@ -200,9 +290,9 @@ def main() -> int:
 
     src = src.replace(old, "\n".join(NEW))
 
-    # FASE11B-ROUTE: insertar el helper antes de la definicion del handler.
+    # FASE11C-ROUTE: insertar los helpers antes de la definicion del handler.
     # El ancla incluye la linea 'void' (tipo de retorno) para no dejar un 'void'
-    # colgante antes del helper.
+    # colgante antes de los helpers.
     helper_anchor = "void\ngdk_android_events_handle_motion_event (GdkAndroidSurface *surface,"
     h = src.count(helper_anchor)
     if h != 1:
@@ -211,10 +301,21 @@ def main() -> int:
         return 1
     src = src.replace(helper_anchor, HELPER + "\n\n" + helper_anchor)
 
+    # FASE11C-ROUTE: include del popup-private (unica aparicion en este .c).
+    i = src.count(INCLUDE_OLD)
+    if i != 1:
+        print("ERROR: include gdkandroidevents-private.h encontrado %d veces " % i +
+              "(esperado 1); re-auditar", file=sys.stderr)
+        return 1
+    src = src.replace(INCLUDE_OLD, INCLUDE_NEW)
+
     markers = [
         "FASE10-TOUCH-AS-POINTER",
-        "FASE11B-ROUTE",
+        "FASE11C-ROUTE",
         "gdk_android_surface_pick_child",
+        "gdk_android_surface_popup_offset",
+        "g_touch_drag_surface",
+        "gdkandroidpopup-private.h",
         "AMOTION_EVENT_TOOL_TYPE_FINGER",
         "gdk_motion_event_new",
         "case AMOTION_EVENT_ACTION_DOWN:",
@@ -231,7 +332,7 @@ def main() -> int:
 
     with open(path, "w") as fh:
         fh.write(src)
-    print("gtk4: dedo primario->puntero + FASE11B-ROUTE aplicado en %s" % path)
+    print("gtk4: dedo primario->puntero + FASE11C-ROUTE aplicado en %s" % path)
     return 0
 
 
