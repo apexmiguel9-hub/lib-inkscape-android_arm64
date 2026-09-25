@@ -281,9 +281,10 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
       GdkAndroidPopup *popup = GDK_ANDROID_POPUP (child);
 
       /* popup_bounds (calculado en present() sincrono) es la fuente primaria.
-       * Si es 0 (present() no corrio aun o race), fallback a cfg (Java side),
-       * convertido con scale del toplevel (ya validado > 0). */
+       * Fallback a cfg SOLO si el popup tiene superficie Java viva (surface != NULL)
+       * y cfg válido: evita picke popups cerrados con cfg sucio (fantasmas). */
       gfloat cx, cy, cw, ch;
+      GdkAndroidSurface *child_impl = (GdkAndroidSurface *) child;
       if (popup->popup_bounds.width > 0 && popup->popup_bounds.height > 0)
         {
           cx = rx + popup->popup_bounds.x;
@@ -291,20 +292,26 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
           cw = popup->popup_bounds.width;
           ch = popup->popup_bounds.height;
         }
-      else
+      else if (child_impl->surface != NULL &&
+               child_impl->cfg.width > 0 && child_impl->cfg.height > 0)
         {
-          /* Fallback: cfg del popup (actualizado por Java en on_layout async).
-           * cfg está en device pixels; convertimos a CSS del toplevel. */
-          GdkAndroidSurface *child_impl = (GdkAndroidSurface *) child;
-          if (child_impl->cfg.width <= 0 || child_impl->cfg.height <= 0)
-            continue;
-          gfloat parent_scale = ((GdkAndroidSurface *) toplevel)->cfg.scale;
+          /* Fallback: cfg del popup (Java side) con scale del padre directo. */
+          gfloat parent_scale = 1.0f;
+          GdkSurface *parent = GDK_SURFACE (child)->parent;
+          if (parent && GDK_IS_ANDROID_SURFACE (parent))
+            parent_scale = ((GdkAndroidSurface *) parent)->cfg.scale;
+          if (parent_scale <= 0.0f)
+            parent_scale = ((GdkAndroidSurface *) toplevel)->cfg.scale;
           if (parent_scale <= 0.0f)
             continue;
           cx = rx + child_impl->cfg.x / parent_scale;
           cy = ry + child_impl->cfg.y / parent_scale;
           cw = child_impl->cfg.width / parent_scale;
           ch = child_impl->cfg.height / parent_scale;
+        }
+      else
+        {
+          continue; /* sin bounds fiables: ignorar este popup */
         }
 
       g_debug ("FASE11C-PICK  cand=%p [%s] vis=%d rect=%.0f,%.0f %.0fx%.0f",
