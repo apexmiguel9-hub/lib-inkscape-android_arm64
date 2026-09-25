@@ -580,12 +580,14 @@ build_gtk4() {
   grep -q 'commitPendingNightMode' "$src/gdk/android/gdkandroidinit.c" \
     || { echo "ERROR: registro JNI commitPendingNightMode fallo en gdkandroidinit.c" >&2; exit 1; }
 
-  # --- FASE 13: tap simple estilo raton (click fiable con el dedo) ---
+  # --- FASE 13: tap simple estilo raton + FASE11C-ROUTE (click fiable + ruteo a popups) ---
   # Sustituye a FASE 10/12: el dedo emula raton (press en DOWN, release en UP).
   # Correccion de slop (~12 css px) SOLO en el release: si el jitter fue
   # minimo, el release va en las coords del press -> GTK ve click limpio.
+  # FASE11C-ROUTE: ruteo determinista a popups (geometria popup_bounds sincrona
+  # + target pegajoso durante el gesto) => menus NO se cierran al tocar items.
   # Sin long-press, sin double-click, sin tracking por pointer-id,
-  # sin deferral del press. Solo click fiable para menús, tools, color picker.
+  # sin deferral del press. Solo click fiable + popups que funcionan.
   python3 "$ROOT/patches/gtk4-touch-as-pointer.py" "$src" \
     || { echo "ERROR: parche FASE13 touch-as-pointer no aplico en gtk 4.22.5" >&2; exit 1; }
   grep -q 'FASE13-DOWN' "$src/gdk/android/gdkandroidevents.c" \
@@ -594,6 +596,8 @@ build_gtk4() {
     || { echo "ERROR: verificacion FASE13-UP fallo en gdkandroidevents.c" >&2; exit 1; }
   grep -q 'F13_SLOP' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: verificacion F13_SLOP fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'FASE11C-ROUTE' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE11C-ROUTE fallo en gdkandroidevents.c" >&2; exit 1; }
   grep -q 'AMOTION_EVENT_TOOL_TYPE_FINGER' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: verificacion FASE13 finger-motion fallo en gdkandroidevents.c" >&2; exit 1; }
   ! grep -q 'gdk_touch_event_new' "$src/gdk/android/gdkandroidevents.c" \
