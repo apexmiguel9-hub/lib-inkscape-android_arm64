@@ -268,13 +268,15 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
     {
       GdkAndroidSurface *child = l->data;
 
-      /* Defensa anti-dangling: solo popups vivos y cuyo parent sea node. */
+      /* Defensa anti-dangling: solo popups vivos y cuyo parent sea node.
+       * NO filtramos por child->visible: un popup en la lista children con
+       * bounds válidos (popup_bounds o cfg) DEBE ser pickeable aunque
+       * visible=FALSE por race (present() corrió pero layout async pendiente). */
       if (child == NULL || !GDK_IS_ANDROID_POPUP (child))
         continue;
       if (GDK_SURFACE (child)->parent != (GdkSurface *) node)
         continue;
-      if (!child->visible)
-        continue;
+      /* if (!child->visible) continue;  <- race: click llega antes de visible=TRUE */
 
       GdkAndroidPopup *popup = GDK_ANDROID_POPUP (child);
 
