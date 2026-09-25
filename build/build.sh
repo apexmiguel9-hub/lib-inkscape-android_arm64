@@ -587,10 +587,12 @@ build_gtk4() {
   # trataba como drag => los taps con el dedo no abrian menus ni botones (solo
   # los de adb, que no generan MOVE, producian click limpio).
   # Modelo del port de Blender para Android (GHOST_SystemAndroid, Wanderson):
-  # el press del dedo se DIFIERE; un tap entrega press+release en el punto
-  # DONDE ATERRIZO el dedo (click limpio aunque derive); > FASE12_SLOP (~12 css
-  # px) = drag (press en el aterrizaje + motion siguiendo al dedo); 500 ms
-  # quieto = click derecho (menus de contexto); stylus presiona al contacto.
+  # el press del dedo se DIFIERE; el click del tap es REAL-TIMED (press en el
+  # punto DONDE ATERRIZO el dedo + release ~15 ms despues, FASE12.2); >
+  # FASE12_SLOP (~12 css px) = drag con CUALQUIER pc (g56 usa pulgar de apoyo);
+  # doble-tap rapido (350 ms) sobre el toplevel = doble-click para GTK
+  # (templates/recientes/file-chooser); SIN long-press (fuera el click derecho);
+  # stylus presiona al contacto.
   # Se conserva el ruteo FASE 11C (popup bajo el dedo => los menus no se cierran
   # al tocar un item). Los dedos extra se ignoran (reservados pinch/pan futuro).
   python3 "$ROOT/patches/gtk4-touch-as-pointer.py" "$src" \
@@ -599,8 +601,10 @@ build_gtk4() {
     || { echo "ERROR: verificacion FASE12-TOUCH fallo en gdkandroidevents.c" >&2; exit 1; }
   grep -q 'FASE12-TAP' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: verificacion FASE12-TAP fallo en gdkandroidevents.c" >&2; exit 1; }
-  grep -q 'FASE12-LONGPRESS' "$src/gdk/android/gdkandroidevents.c" \
-    || { echo "ERROR: verificacion FASE12-LONGPRESS fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'FASE12-DBLCLICK' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE12-DBLCLICK fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'FASE12-TAP-REL' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE12-TAP-REL fallo en gdkandroidevents.c" >&2; exit 1; }
   grep -q 'AMOTION_EVENT_TOOL_TYPE_FINGER' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: verificacion FASE12 finger-motion fallo en gdkandroidevents.c" >&2; exit 1; }
   ! grep -q 'gdk_touch_event_new' "$src/gdk/android/gdkandroidevents.c" \

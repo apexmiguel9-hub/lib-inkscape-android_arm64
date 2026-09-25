@@ -16,12 +16,8 @@ FASE 12 importa el modelo del port de Blender para Android:
   * MOVE      -> jitter <= slop: NO se emite nada. > slop: se entrega el press
                  en el punto DONDE ATERRIZO el dedo y el motion sigue al dedo
                  (drag/dibujo genuino; Blender: touchSendButton en el down point).
-  * UP (tap)  -> press + release en el punto de aterrizaje => click limpio
-                 aunque el dedo derive antes de levantar (fix de los taps
-                 fisicos; Blender: UP con touch_pending_ => down+up en el down).
-  * Long-press (500 ms sin exceder el slop de long-press) -> click derecho en
-                 el punto de aterrizaje (menus de contexto con el dedo;
-                 Blender: TOUCH_LONG_PRESS_MS / TOUCH_LONG_PRESS_MOVE_PX).
+  * UP (tap)  -> click en el punto de aterrizaje (fix de los taps fisicos;
+                 Blender: UP con touch_pending_ => down+up en el down).
   * Stylus    -> press al contacto, sin deferral (Blender: el stylus no
                  participa del dedo diferido).
 
@@ -31,12 +27,34 @@ pc 1->2->1) y Android baraja los indices de puntero al irse/venir un contacto
 bajo el indice 0). Por eso:
   * el gesto se rastrea por ID de puntero (estable), no por indice: gidx se
     resuelve en cada evento buscando nuestro pointer_id; con un 2o contacto en
-    la secuencia NO se cancela el pending (un 'cancel pc>=2' hacia el clasico
-    FASE12-CANCEL-PENDING: ningun tap sobrevivia => el menu de templates no
-    clickeaba) y el slop->drag SOLO se clasifica con pc==1 (stream fiable).
+    la secuencia NO se cancela el pending ('cancel pc>=2' dejaba muerto todo
+    tap) y el slop->drag SOLO se clasificaba con pc==1 (stream fiable).
   * el gesto termina en el POINTER_UP de NUESTRO dedo (el ACTION_UP final no
     llega si queda otro contacto abajo): si pending => TAP en el aterrizaje;
     si arrastraba => release en la ultima posicion conocida.
+
+FASE 12.2 (g56, feedback del device):
+  * CLICK REAL-TIMED: el tap ya no entrega press+release PEGADOS (mismo
+    instante, mismo timestamp, misma iteracion del main loop): en g56 eso
+    dejaba botones ARMA DOS (p.ej. los GtkToggleToolButton de la caja de tools
+    que nunca "clickeaban" => no cambiaba de tool) y rangos GtkRange en estado
+    de drag/repeat infinito (un click en el trough de una scrollbar => "se
+    queda sostenida y moviendose" hasta que otro gesto la descoloca). Ahora el
+    press se entrega en el UP del dedo y el release llega ~FASE12_TAP_RELEASE_MS
+    (15 ms) despues, con timestamp de monotonic (forma real-timed, la misma con
+    la que los taps de adb en FASE10/11 SI funcionaban).
+  * SIN long-press: se elimina el click derecho por mantener presionado
+    (peticion explicita del usuario; su workaround hold+click dependia de el,
+    pero prefiere quitar el menu de contexto accidental). Se conserva la ref
+    fuerte anti-dangling al target durante el gesto y para el release diferido.
+  * DOBLE-CLICK tolerante al dedo: GtkGestureClick cuenta clicks consecutivos
+    por TIMEOUT (gtk-double-click-time ~400 ms) y para devices TOUCHSCREEN NO
+    aplica la distancia de doble-click (solo MOUSE). Con el release real-timed,
+    dos taps rapidos sobre templates / recientes / file-chooser (GtkListBox:
+    row-activated en el 2o PRESS) ya activan el elemento.
+  * DRAG con pc>=2: se quita el gate pointers==1 del slop->drag: el swipe con
+    el pulgar de apoyo abajo (pc=2 sostenido es lo NORMAL en g56) clasifica
+    drag usando las coords de NUESTRO puntero (estables por pointer id).
 
 Se conserva FASE 11C-ROUTE (ruteo determinista por geometria sobre
 popup_bounds SINCRONO + target pegajoso por gesto): el tap sobre un item de
@@ -86,15 +104,16 @@ NEW = [
     "  if (GDK_ANDROID_EVENTS_COMPARE_MASK (src, AINPUT_SOURCE_TOUCHSCREEN))",
     "    {",
     "      /* FASE10-TOUCH-AS-POINTER: el dedo primario sigue emulando al raton",
-    "       * (lineage del parche), pero la logica de emision es ahora FASE12:",
+    "       * (lineage del parche), pero la logica de emision es FASE12 (12.1/12.2):",
     "       * modelo de gestos del port de Blender para Android",
     "       * (GHOST_SystemAndroid::handleMotionEvent). El press del dedo se",
-    "       * DIFIERE hasta saber si es tap, drag o long-press: el micro-movimiento",
-    "       * del dedo real superaba el slop de la FASE 10 y GTK trataba los taps",
-    "       * como drag => los taps fisicos no abrian menus. Un tap entrega",
-    "       * press+release en el punto DONDE ATERRIZO el dedo; un drag presiona",
-    "       * ahi y sigue al dedo; 500 ms quieto = click derecho. El stylus",
-    "       * presiona al contacto (sin deferral). */",
+    "       * DIFIERE hasta saber si es tap o drag: el micro-movimiento del dedo",
+    "       * real superaba el slop de la FASE 10 y GTK trataba los taps como drag",
+    "       * => los taps fisicos no abrian menus. Un tap entrega press en el punto",
+    "       * DONDE ATERRIZO el dedo y el release ~15 ms despues (click real-timed:",
+    "       * press+release pegados en el mismo instante dejaban botones armados y",
+    "       * rangos en drag infinito en g56); un drag presiona en el aterrizaje y",
+    "       * sigue al dedo. El stylus presiona al contacto (sin deferral). */",
     "      (void) event_identifier;",
     "",
     "      size_t pointers = AMotionEvent_getPointerCount (event);",
@@ -155,12 +174,14 @@ NEW = [
     "            {",
     "            case AMOTION_EVENT_ACTION_DOWN:",
     "              {",
+    "                /* suelta pendiente de un tap anterior (nuevo DOWN antes del",
+    "                 * timeout del release): se entrega ya, antes del nuevo gesto. */",
+    "                fase12_tap_do_release ();",
     "                g_touch_f12.tracking = FALSE;",
     "                if (AMotionEvent_getToolType (event, 0) == AMOTION_EVENT_TOOL_TYPE_FINGER)",
     "                  {",
     "                    /* dedo: diferir el press (Blender). El click se entrega en",
-    "                     * el punto de aterrizaje (tap), tras superar el slop (drag)",
-    "                     * o tras 500 ms quietos (long-press: click derecho). */",
+    "                     * el punto de aterrizaje (tap), o tras superar el slop (drag). */",
     "                    g_touch_f12.pending = TRUE;",
     "                    g_touch_f12.tracking = TRUE;",
     "                    g_touch_f12.pointer_id = AMotionEvent_getPointerId (event, 0);",
@@ -168,16 +189,10 @@ NEW = [
     "                    g_touch_f12.down_y = y;",
     "                    g_touch_f12.last_x = x;",
     "                    g_touch_f12.last_y = y;",
-    "                    g_touch_f12.down_ms = g_get_monotonic_time () / 1000;",
-    "                    g_touch_f12.tool_type = AMOTION_EVENT_TOOL_TYPE_FINGER;",
-    "                    /* ref fuerte al target durante todo el gesto: el long-press",
-    "                     * se dispara 500 ms despues del DOWN y el popup podria",
-    "                     * haberse cerrado/liberado en ese lapso. Se libera en UP,",
-    "                     * en el POINTER_UP de nuestro dedo o al emitir el",
-    "                     * long-press (FASE12). */",
+    "                    /* ref fuerte al target durante todo el gesto (anti-dangling:",
+    "                     * el popup podria cerrarse entre DOWN y UP). Se libera en el",
+    "                     * UP / POINTER_UP de nuestro dedo (FASE12). */",
     "                    g_touch_f12.target = g_object_ref (target);",
-    "                    g_touch_f12_lp_id = g_timeout_add (FASE12_LONG_PRESS_MS,",
-    "                                                       fase12_long_press_cb, NULL);",
     "                    gfloat pcx = 0.0f, pcy = 0.0f;",
     "                    if (target != toplevel)",
     "                      gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
@@ -215,37 +230,33 @@ NEW = [
     "                if (g_touch_f12.pending)",
     "                  {",
     "                    /* jitter <= slop: no se emite NADA (el tap clickea donde",
-    "                     * aterrizo el dedo). El slop->drag SOLO se clasifica con",
-    "                     * pc==1: con un 2o contacto en la secuencia (g56: el tap",
-    "                     * viene doble-reportado ~60 ms) el stream no es fiable y",
-    "                     * el tap debe aterrizar en UP en su punto de aterrizaje. */",
-    "                    if (pointers == 1)",
+    "                     * aterrizo el dedo). El slop->drag usa las coords de NUESTRO",
+    "                     * puntero (estables por id) con CUALQUIER pc: en g56 casi",
+    "                     * todo gesto va con pc=2 (pulgar de apoyo) y el gate pc==1",
+    "                     * dejaba los swipes sin clasificar ('no puedo deslizar'). */",
+    "                    gdouble dx = x - g_touch_f12.down_x;",
+    "                    gdouble dy = y - g_touch_f12.down_y;",
+    "                    if (dx * dx + dy * dy > FASE12_SLOP_SQ)",
     "                      {",
-    "                        gdouble dx = x - g_touch_f12.down_x;",
-    "                        gdouble dy = y - g_touch_f12.down_y;",
-    "                        if (dx * dx + dy * dy > FASE12_SLOP_SQ)",
-    "                          {",
-    "                            g_touch_f12.pending = FALSE;",
-    "                            g_touch_f12_remove_lp ();",
-    "                            guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_PRIMARY;",
-    "                            g_debug (\"FASE12-DRAG target=%p [%s] press=%.0f,%.0f now=%.0f,%.0f\",",
-    "                                     target, G_OBJECT_TYPE_NAME (target),",
-    "                                     g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy,",
-    "                                     x - pcx, y - pcy);",
-    "                            gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
-    "                                                                  GDK_BUTTON_PRIMARY,",
-    "                                                                  target, event, dev,",
-    "                                                                  time, mods,",
-    "                                                                  g_touch_f12.down_x - pcx,",
-    "                                                                  g_touch_f12.down_y - pcy);",
-    "                            dev_impl->button_state = state;",
-    "                          }",
+    "                        g_touch_f12.pending = FALSE;",
+    "                        g_touch_f12.dbl_armed = FALSE; /* un drag rompe el par */",
+    "                        guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_PRIMARY;",
+    "                        g_debug (\"FASE12-DRAG target=%p [%s] press=%.0f,%.0f now=%.0f,%.0f\",",
+    "                                 target, G_OBJECT_TYPE_NAME (target),",
+    "                                 g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy,",
+    "                                 x - pcx, y - pcy);",
+    "                        gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
+    "                                                              GDK_BUTTON_PRIMARY,",
+    "                                                              target, event, dev,",
+    "                                                              time, mods,",
+    "                                                              g_touch_f12.down_x - pcx,",
+    "                                                              g_touch_f12.down_y - pcy);",
+    "                        dev_impl->button_state = state;",
     "                      }",
     "                  }",
-    "                if (dev_impl->button_state & (AMOTION_EVENT_BUTTON_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY))",
+    "                if (dev_impl->button_state & AMOTION_EVENT_BUTTON_PRIMARY)",
     "                  {",
-    "                    /* arrastre en curso (dedo, stylus o long-press): el motion",
-    "                     * sigue al dedo. */",
+    "                    /* arrastre en curso (dedo o stylus): el motion sigue al dedo. */",
     "                    GdkDeviceTool *tool = gdk_android_seat_get_device_tool (display->seat, AMotionEvent_getToolType (event, gidx));",
     "                    GdkEvent *ev = gdk_motion_event_new ((GdkSurface *) target, dev, tool,",
     "                                                         time, mods,",
@@ -263,47 +274,62 @@ NEW = [
     "              {",
     "                if (g_touch_f12.tracking && gidx == pointers)",
     "                  break; /* nuestro dedo ya se fue (su POINTER_UP lo cerro) */",
-    "                g_touch_f12_remove_lp ();",
     "                gfloat pcx = 0.0f, pcy = 0.0f;",
     "                if (target != toplevel)",
     "                  gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
     "                if (g_touch_f12.pending)",
     "                  {",
-    "                    /* TAP: press + release en el punto DONDE ATERRIZO el dedo",
-    "                     * => click limpio aunque el dedo derive (fix taps fisicos). */",
+    "                    /* TAP: press en el punto DONDE ATERRIZO el dedo y release",
+    "                     * real-timed ~FASE12_TAP_RELEASE_MS despues (click fiable;",
+    "                     * en g56 el press+release pegados dejaban botones armados",
+    "                     * y rangos en drag/repeat infinito). */",
     "                    g_touch_f12.pending = FALSE;",
+    "                    gboolean is_dbl = g_touch_f12.dbl_armed &&",
+    "                                      target == toplevel &&",
+    "                                      (g_get_monotonic_time () / 1000 - g_touch_f12.dbl_ms) < FASE12_DBL_TIME_MS;",
     "                    guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_PRIMARY;",
-    "                    g_debug (\"FASE12-TAP target=%p [%s] ev=%.0f,%.0f\",",
+    "                    g_debug (\"FASE12-TAP target=%p [%s] ev=%.0f,%.0f%s\",",
     "                             target, G_OBJECT_TYPE_NAME (target),",
-    "                             g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy);",
+    "                             g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy,",
+    "                             is_dbl ? \" dbl\" : \"\");",
+    "                    if (is_dbl)",
+    "                      g_debug (\"FASE12-DBLCLICK target=%p [%s] par con 1er=%.0f,%.0f\",",
+    "                               target, G_OBJECT_TYPE_NAME (target),",
+    "                               g_touch_f12.dbl_x - pcx, g_touch_f12.dbl_y - pcy);",
     "                    gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
     "                                                          GDK_BUTTON_PRIMARY,",
     "                                                          target, event, dev,",
     "                                                          time, mods,",
     "                                                          g_touch_f12.down_x - pcx,",
     "                                                          g_touch_f12.down_y - pcy);",
-    "                    guint32 up_state = state & ~AMOTION_EVENT_BUTTON_PRIMARY;",
+    "                    dev_impl->button_state = state;",
+    "                    fase12_tap_schedule_release (target, g_touch_f12.down_x, g_touch_f12.down_y);",
+    "                    /* doble-click tolerante al dedo: solo se arma sobre el",
+    "                     * TOPLEVEL (menus/popups jamás doble-cliclean) y con dos",
+    "                     * taps rapidos (GtkGestureClick cuenta por timeout y sin",
+    "                     * distancia en touchscreen). */",
+    "                    if (target == toplevel)",
+    "                      {",
+    "                        g_touch_f12.dbl_armed = TRUE;",
+    "                        g_touch_f12.dbl_x = g_touch_f12.down_x;",
+    "                        g_touch_f12.dbl_y = g_touch_f12.down_y;",
+    "                        g_touch_f12.dbl_ms = g_get_monotonic_time () / 1000;",
+    "                      }",
+    "                    else",
+    "                      g_touch_f12.dbl_armed = FALSE;",
+    "                  }",
+    "                else if (dev_impl->button_state & AMOTION_EVENT_BUTTON_PRIMARY)",
+    "                  {",
+    "                    /* suelta el boton primario (fin de drag de dedo o stylus). */",
+    "                    guint32 up_state = dev_impl->button_state & ~AMOTION_EVENT_BUTTON_PRIMARY;",
+    "                    g_debug (\"FASE12-UP target=%p [%s] ev=%.0f,%.0f btn=1\",",
+    "                             target, G_OBJECT_TYPE_NAME (target), x - pcx, y - pcy);",
     "                    gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, up_state,",
     "                                                          GDK_BUTTON_PRIMARY,",
     "                                                          target, event, dev,",
     "                                                          time, mods,",
-    "                                                          g_touch_f12.down_x - pcx,",
-    "                                                          g_touch_f12.down_y - pcy);",
-    "                    dev_impl->button_state = up_state;",
-    "                  }",
-    "                else if (dev_impl->button_state & (AMOTION_EVENT_BUTTON_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY))",
-    "                  {",
-    "                    /* suelta el boton que estaba abajo (fin de drag o long-press). */",
-    "                    guint32 mask = dev_impl->button_state & (AMOTION_EVENT_BUTTON_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY);",
-    "                    guint button = (mask & AMOTION_EVENT_BUTTON_SECONDARY) ? GDK_BUTTON_SECONDARY : GDK_BUTTON_PRIMARY;",
-    "                    guint32 state = dev_impl->button_state & ~mask;",
-    "                    g_debug (\"FASE12-UP target=%p [%s] ev=%.0f,%.0f btn=%u\",",
-    "                             target, G_OBJECT_TYPE_NAME (target), x - pcx, y - pcy, button);",
-    "                    gdk_android_events_emit_button_press (mask, state, button,",
-    "                                                          target, event, dev,",
-    "                                                          time, mods,",
     "                                                          x - pcx, y - pcy);",
-    "                    dev_impl->button_state = state;",
+    "                    dev_impl->button_state = up_state;",
     "                  }",
     "                g_touch_f12.pending = FALSE;",
     "                g_touch_f12.tracking = FALSE;",
@@ -323,47 +349,57 @@ NEW = [
     "                if (g_touch_f12.tracking &&",
     "                    AMotionEvent_getPointerId (event, affected) == g_touch_f12.pointer_id)",
     "                  {",
-    "                    g_touch_f12_remove_lp ();",
     "                    gfloat pcx = 0.0f, pcy = 0.0f;",
     "                    if (target != toplevel)",
     "                      gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
     "                    if (g_touch_f12.pending)",
     "                      {",
-    "                        /* TAP igual que en UP: click en el punto de aterrizaje. */",
+    "                        /* TAP igual que en UP: press en el aterrizaje + release",
+    "                         * real-timed. */",
     "                        g_touch_f12.pending = FALSE;",
+    "                        gboolean is_dbl = g_touch_f12.dbl_armed &&",
+    "                                          target == toplevel &&",
+    "                                          (g_get_monotonic_time () / 1000 - g_touch_f12.dbl_ms) < FASE12_DBL_TIME_MS;",
     "                        guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_PRIMARY;",
-    "                        g_debug (\"FASE12-TAP target=%p [%s] ev=%.0f,%.0f (p-up)\",",
+    "                        g_debug (\"FASE12-TAP target=%p [%s] ev=%.0f,%.0f (p-up)%s\",",
     "                                 target, G_OBJECT_TYPE_NAME (target),",
-    "                                 g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy);",
+    "                                 g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy,",
+    "                                 is_dbl ? \" dbl\" : \"\");",
+    "                        if (is_dbl)",
+    "                          g_debug (\"FASE12-DBLCLICK target=%p [%s] par con 1er=%.0f,%.0f (p-up)\",",
+    "                                   target, G_OBJECT_TYPE_NAME (target),",
+    "                                   g_touch_f12.dbl_x - pcx, g_touch_f12.dbl_y - pcy);",
     "                        gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
     "                                                              GDK_BUTTON_PRIMARY,",
     "                                                              target, event, dev,",
     "                                                              time, mods,",
     "                                                              g_touch_f12.down_x - pcx,",
     "                                                              g_touch_f12.down_y - pcy);",
-    "                        guint32 up_state = state & ~AMOTION_EVENT_BUTTON_PRIMARY;",
+    "                        dev_impl->button_state = state;",
+    "                        fase12_tap_schedule_release (target, g_touch_f12.down_x, g_touch_f12.down_y);",
+    "                        if (target == toplevel)",
+    "                          {",
+    "                            g_touch_f12.dbl_armed = TRUE;",
+    "                            g_touch_f12.dbl_x = g_touch_f12.down_x;",
+    "                            g_touch_f12.dbl_y = g_touch_f12.down_y;",
+    "                            g_touch_f12.dbl_ms = g_get_monotonic_time () / 1000;",
+    "                          }",
+    "                        else",
+    "                          g_touch_f12.dbl_armed = FALSE;",
+    "                      }",
+    "                    else if (dev_impl->button_state & AMOTION_EVENT_BUTTON_PRIMARY)",
+    "                      {",
+    "                        guint32 up_state = dev_impl->button_state & ~AMOTION_EVENT_BUTTON_PRIMARY;",
+    "                        g_debug (\"FASE12-UP target=%p [%s] ev=%.0f,%.0f btn=1 (p-up)\",",
+    "                                 target, G_OBJECT_TYPE_NAME (target),",
+    "                                 g_touch_f12.last_x - pcx, g_touch_f12.last_y - pcy);",
     "                        gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, up_state,",
     "                                                              GDK_BUTTON_PRIMARY,",
     "                                                              target, event, dev,",
     "                                                              time, mods,",
-    "                                                              g_touch_f12.down_x - pcx,",
-    "                                                              g_touch_f12.down_y - pcy);",
-    "                        dev_impl->button_state = up_state;",
-    "                      }",
-    "                    else if (dev_impl->button_state & (AMOTION_EVENT_BUTTON_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY))",
-    "                      {",
-    "                        guint32 mask = dev_impl->button_state & (AMOTION_EVENT_BUTTON_PRIMARY | AMOTION_EVENT_BUTTON_SECONDARY);",
-    "                        guint button = (mask & AMOTION_EVENT_BUTTON_SECONDARY) ? GDK_BUTTON_SECONDARY : GDK_BUTTON_PRIMARY;",
-    "                        guint32 state = dev_impl->button_state & ~mask;",
-    "                        g_debug (\"FASE12-UP target=%p [%s] ev=%.0f,%.0f btn=%u (p-up)\",",
-    "                                 target, G_OBJECT_TYPE_NAME (target),",
-    "                                 g_touch_f12.last_x - pcx, g_touch_f12.last_y - pcy, button);",
-    "                        gdk_android_events_emit_button_press (mask, state, button,",
-    "                                                              target, event, dev,",
-    "                                                              time, mods,",
     "                                                              g_touch_f12.last_x - pcx,",
     "                                                              g_touch_f12.last_y - pcy);",
-    "                        dev_impl->button_state = state;",
+    "                        dev_impl->button_state = up_state;",
     "                      }",
     "                    g_touch_f12.pending = FALSE;",
     "                    g_touch_f12.tracking = FALSE;",
@@ -402,8 +438,15 @@ HELPER = """/* FASE11C-ROUTE: helpers de ruteo del puntero sintetico (dedo prima
  *    que un drag que se salga del rect del popover no salte al canvas.
  *
  * FASE12-TOUCH: estado del gesto diferido (modelo Blender). El press del dedo
- * no se emite en el DOWN; queda pendiente de clasificar (tap/drag/long-press)
- * y el click SIEMPRE se entrega en el punto donde aterrizo el dedo. */
+ * no se emite en el DOWN; queda pendiente de clasificar (tap/drag) y el click
+ * SIEMPRE se entrega en el punto donde aterrizo el dedo. FASE12.2: el click
+ * del tap es REAL-TIMED (presion en el UP del dedo, suelta ~15 ms despues con
+ * timestamp propio): en g56 el press+release pegados en el mismo instante
+ * dejaban botones armados (toggle tools que nunca clickeaban) y rangos en
+ * drag/repeat infinito (scrollbars "sostenidas"). Tambien arma el par de
+ * doble-click tolerante al dedo (350 ms, solo TOPLEVEL) con el que los taps
+ * gemelos abren templates/recientes/file-chooser (GtkListBox activa en el 2o
+ * PRESS; GtkGestureClick cuenta por timeout y sin distancia en touchscreen). */
 
 static GdkAndroidSurface *g_touch_drag_surface = NULL;
 
@@ -484,16 +527,21 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
   return NULL;
 }
 
-/* FASE12-TOUCH: estado del gesto diferido + click derecho por long-press.
+/* FASE12-TOUCH: estado del gesto diferido + doble-click + release real-timed.
  * FASE12_SLOP: ~12 css px (dedo real; el tap clickea en el aterrizaje igual).
- * El callback se dispara desde el main loop (g_timeout_add es seguro: los
- * eventos llegan via GlibContext.runOnMain, hilo del g_main_context). */
+ * FASE12_TAP_RELEASE_MS: presion real del click sintetico del dedo (g56:
+ * press+release pegados en el mismo instante dejaban botones armados y rangos
+ * en drag infinito; el release diferido entrega un click real-timed como el
+ * de adb/mouse en FASE10/11, que si funcionaba).
+ * FASE12_DBL_TIME_MS: ventana del par de doble-click (GtkGestureClick usa el
+ * gtk-double-click-time de settings, ~400 ms; 350 ms deja margen). */
 #define FASE12_SLOP 12.0
 #define FASE12_SLOP_SQ (FASE12_SLOP * FASE12_SLOP)
-#define FASE12_LONG_PRESS_MS 500
+#define FASE12_TAP_RELEASE_MS 15
+#define FASE12_DBL_TIME_MS 350
 
 static struct {
-    gboolean pending;      /* dedo abajo sin clasificar (tap/drag/long-press) */
+    gboolean pending;      /* dedo abajo sin clasificar (tap/drag) */
     gboolean tracking;     /* gesto activo: rastrea por pointer_id (estable) */
     gint32 pointer_id;     /* id de puntero de NUESTRO dedo (g56: los indices
                               se barajan con un 2o contacto transitorio) */
@@ -501,67 +549,100 @@ static struct {
     gdouble down_y;
     gdouble last_x;        /* ultima posicion de nuestro dedo (para releases) */
     gdouble last_y;
-    gint64 down_ms;        /* g_get_monotonic_time () / 1000 al aterrizar */
-    gint32 tool_type;      /* AMOTION_EVENT_TOOL_TYPE_* al aterrizar */
     GdkAndroidSurface *target; /* ref fuerte durante el gesto (anti-dangling) */
-} g_touch_f12 = {FALSE, FALSE, -1, 0.0, 0.0, 0.0, 0.0, 0, AMOTION_EVENT_TOOL_TYPE_UNKNOWN, NULL};
+    /* par de doble-click tolerante al dedo (solo TOPLEVEL, FASE12.2) */
+    gboolean dbl_armed;
+    gdouble dbl_x;         /* punto del tap anterior (css del toplevel) */
+    gdouble dbl_y;
+    gint64 dbl_ms;         /* monotonic ms del tap anterior */
+    /* release diferido del TAP (click real-timed, FASE12.2) */
+    gboolean rel_pending;
+    guint rel_id;          /* source id del timeout de suelta */
+    GdkAndroidSurface *rel_target; /* ref fuerte mientras la suelta esta pendiente */
+    gdouble rel_x;         /* donde emitir el release (css del toplevel) */
+    gdouble rel_y;
+} g_touch_f12 = {FALSE, FALSE, -1, 0.0, 0.0, 0.0, 0.0, NULL, FALSE, 0.0, 0.0, 0, FALSE, 0, NULL, 0.0, 0.0};
 
-static guint g_touch_f12_lp_id = 0;
-
+/* Emite la suelta pendiente del tap (o no hace nada si no hay). Requiere el
+ * main loop del display; se llama desde el timeout o desde el DOWN de un nuevo
+ * gesto (flush) para que el release del tap anterior se entregue SIEMPRE. */
 static void
-g_touch_f12_remove_lp (void)
+fase12_tap_do_release (void)
 {
-  if (g_touch_f12_lp_id != 0)
-    {
-      g_source_remove (g_touch_f12_lp_id);
-      g_touch_f12_lp_id = 0;
-    }
-}
-
-static gboolean
-fase12_long_press_cb (gpointer user_data)
-{
-  (void) user_data;
-
-  if (!g_touch_f12.pending || g_touch_f12.target == NULL)
-    return G_SOURCE_REMOVE;
-
-  /* el dedo se movio en exceso antes del deadline: es un drag, no long-press */
-  gint64 now_ms = g_get_monotonic_time () / 1000;
-  if (now_ms - g_touch_f12.down_ms < FASE12_LONG_PRESS_MS)
-    return G_SOURCE_CONTINUE;
-
-  /* click derecho en el punto DONDE ATERRIZO el dedo (menus de contexto). */
-  GdkAndroidSurface *target = g_touch_f12.target; /* valido por la ref */
-  GdkAndroidSurface *toplevel = (GdkAndroidSurface *) gdk_android_surface_get_toplevel (target);
+  GdkAndroidSurface *target;
+  GdkAndroidSurface *toplevel;
+  GdkAndroidDisplay *display;
+  GdkAndroidDevice *dev_impl;
+  GdkDevice *dev;
+  GdkModifierType mods;
+  GdkDeviceTool *tool;
+  guint32 up_state, time;
   gfloat pcx = 0.0f, pcy = 0.0f;
+
+  if (!g_touch_f12.rel_pending)
+    return;
+  g_touch_f12.rel_pending = FALSE;
+  if (g_touch_f12.rel_id != 0)
+    {
+      g_source_remove (g_touch_f12.rel_id);
+      g_touch_f12.rel_id = 0;
+    }
+
+  target = g_touch_f12.rel_target;
+  if (target == NULL)
+    return;
+
+  display = (GdkAndroidDisplay *) gdk_surface_get_display ((GdkSurface *) target);
+  dev = gdk_seat_get_pointer ((GdkSeat *) display->seat);
+  dev_impl = GDK_ANDROID_DEVICE (dev);
+  toplevel = (GdkAndroidSurface *) gdk_android_surface_get_toplevel (target);
   if (target != toplevel)
     gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);
 
-  g_touch_f12.pending = FALSE;
-  g_clear_object (&g_touch_f12.target);
+  up_state = dev_impl->button_state & ~AMOTION_EVENT_BUTTON_PRIMARY;
+  mods = gdk_android_events_buttons_to_gdkmods (up_state);
+  time = (guint32) (g_get_monotonic_time () / 1000);
+  tool = gdk_android_seat_get_device_tool (display->seat, AMOTION_EVENT_TOOL_TYPE_FINGER);
 
-  GdkAndroidDisplay *display = (GdkAndroidDisplay *) gdk_surface_get_display ((GdkSurface *) target);
-  GdkDevice *dev = gdk_seat_get_pointer ((GdkSeat *) display->seat);
-  GdkAndroidDevice *dev_impl = GDK_ANDROID_DEVICE (dev);
-  guint32 state = dev_impl->button_state | AMOTION_EVENT_BUTTON_SECONDARY;
-  GdkModifierType mods = gdk_android_events_buttons_to_gdkmods (state);
-  guint32 time = (guint32) now_ms;
-  GdkDeviceTool *tool = gdk_android_seat_get_device_tool (display->seat, g_touch_f12.tool_type);
-
-  g_debug ("FASE12-LONGPRESS target=%p [%s] ev=%.0f,%.0f",
+  g_debug ("FASE12-TAP-REL target=%p [%s] ev=%.0f,%.0f",
            target, G_OBJECT_TYPE_NAME (target),
-           g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy);
+           g_touch_f12.rel_x - pcx, g_touch_f12.rel_y - pcy);
 
-  GdkEvent *ev = gdk_button_event_new (GDK_BUTTON_PRESS, (GdkSurface *) target, dev, tool,
-                                       time, mods, GDK_BUTTON_SECONDARY,
-                                       g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy,
+  GdkEvent *ev = gdk_button_event_new (GDK_BUTTON_RELEASE, (GdkSurface *) target, dev, tool,
+                                       time, mods, GDK_BUTTON_PRIMARY,
+                                       g_touch_f12.rel_x - pcx, g_touch_f12.rel_y - pcy,
                                        NULL);
   gdk_android_seat_consume_event ((GdkDisplay *) display, ev);
-  dev_impl->button_state = state;
+  dev_impl->button_state = up_state;
   gdk_android_device_maybe_update_surface ((GdkAndroidDevice *) dev, target, mods, time,
-                                           g_touch_f12.down_x - pcx, g_touch_f12.down_y - pcy);
+                                           g_touch_f12.rel_x - pcx, g_touch_f12.rel_y - pcy);
+  g_clear_object (&g_touch_f12.rel_target);
+}
+
+static gboolean
+fase12_tap_release_cb (gpointer user_data)
+{
+  (void) user_data;
+  fase12_tap_do_release ();
   return G_SOURCE_REMOVE;
+}
+
+/* Programa la suelta del tap ~FASE12_TAP_RELEASE_MS despues del press, en el
+ * mismo punto (coords css del toplevel; el offset del popup se corrige al
+ * emitir). Ref fuerte al target mientras la suelta este pendiente. */
+static void
+fase12_tap_schedule_release (GdkAndroidSurface *target,
+                             gdouble            x,
+                             gdouble            y)
+{
+  if (g_touch_f12.rel_pending)
+    return; /* ya hay una suelta programada (no deberia pasar; defensivo) */
+
+  g_touch_f12.rel_target = g_object_ref (target);
+  g_touch_f12.rel_x = x;
+  g_touch_f12.rel_y = y;
+  g_touch_f12.rel_pending = TRUE;
+  g_touch_f12.rel_id = g_timeout_add (FASE12_TAP_RELEASE_MS, fase12_tap_release_cb, NULL);
 }"""
 
 # FASE11C-ROUTE: include necesario para GdkAndroidPopup / popup_bounds /
@@ -616,13 +697,19 @@ def main() -> int:
         "FASE12-PENDING",
         "FASE12-TAP",
         "FASE12-DRAG",
-        "FASE12-LONGPRESS",
-        "fase12_long_press_cb",
+        "FASE12-TAP-REL",
+        "FASE12-DBLCLICK",
+        "fase12_tap_schedule_release",
+        "fase12_tap_do_release",
+        "fase12_tap_release_cb",
+        "FASE12_TAP_RELEASE_MS",
+        "FASE12_DBL_TIME_MS",
         "g_touch_f12",
-        "g_touch_f12_remove_lp",
         "g_touch_f12.tracking",
         "g_touch_f12.pointer_id",
         "g_touch_f12.last_x",
+        "g_touch_f12.dbl_armed",
+        "g_touch_f12.rel_pending",
         "g_object_ref",
         "g_clear_object",
         "g_timeout_add",
@@ -650,7 +737,8 @@ def main() -> int:
 
     with open(path, "w") as fh:
         fh.write(src)
-    print("gtk4: FASE12 gestos estilo Blender + FASE11C-ROUTE aplicado en %s" % path)
+    print("gtk4: FASE12.2 gestos estilo Blender (click real-timed, sin long-press,"
+          " doble-click dedo, drag pc>=2) + FASE11C-ROUTE aplicado en %s" % path)
     return 0
 
 
