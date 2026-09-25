@@ -580,35 +580,33 @@ build_gtk4() {
   grep -q 'commitPendingNightMode' "$src/gdk/android/gdkandroidinit.c" \
     || { echo "ERROR: registro JNI commitPendingNightMode fallo en gdkandroidinit.c" >&2; exit 1; }
 
-  # --- FASE 10: dedo primario = puntero (touch->mouse) ----------------------
-  # GTK4 ya NO sintetiza touch->mouse (GTK3/X11 lo hacia): con GDK_TOUCH_* puro
-  # los GtkGestureClick de los botones no reciben click (el GestureDrag
-  # touch-only del GtkScrolledWindow captura al minimo movimiento -> no se
-  # tocan tools/colores) y el lienzo de inkscape (solo puntero) no dibuja.
-  # Emulamos el dedo primario como boton izquierdo (tap=click, arrastre=drag);
-  # los dedos extra se ignoran (reservados para pinch/pan en la FASE 11).
+  # --- FASE 12: gestos de toque estilo Blender (click fiable con el dedo) ---
+  # Sustituye a FASE 10 (dedo=puntero con press inmediato en el DOWN) + FASE 10B
+  # (anclaje de MOTION a 8 css px): el micro-movimiento del dedo REAL superaba
+  # ese slop y GTK veia "press en A, release en B" en un tap fisico => lo
+  # trataba como drag => los taps con el dedo no abrian menus ni botones (solo
+  # los de adb, que no generan MOVE, producian click limpio).
+  # Modelo del port de Blender para Android (GHOST_SystemAndroid, Wanderson):
+  # el press del dedo se DIFIERE; un tap entrega press+release en el punto
+  # DONDE ATERRIZO el dedo (click limpio aunque derive); > FASE12_SLOP (~12 css
+  # px) = drag (press en el aterrizaje + motion siguiendo al dedo); 500 ms
+  # quieto = click derecho (menus de contexto); stylus presiona al contacto.
+  # Se conserva el ruteo FASE 11C (popup bajo el dedo => los menus no se cierran
+  # al tocar un item). Los dedos extra se ignoran (reservados pinch/pan futuro).
   python3 "$ROOT/patches/gtk4-touch-as-pointer.py" "$src" \
-    || { echo "ERROR: parche FASE10 touch-as-pointer no aplico en gtk 4.22.5" >&2; exit 1; }
-  grep -q 'FASE10-TOUCH-AS-POINTER' "$src/gdk/android/gdkandroidevents.c" \
-    || { echo "ERROR: verificacion FASE10-TOUCH-AS-POINTER fallo en gdkandroidevents.c" >&2; exit 1; }
+    || { echo "ERROR: parche FASE12 touch-as-pointer no aplico en gtk 4.22.5" >&2; exit 1; }
+  grep -q 'FASE12-TOUCH' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE12-TOUCH fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'FASE12-TAP' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE12-TAP fallo en gdkandroidevents.c" >&2; exit 1; }
+  grep -q 'FASE12-LONGPRESS' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: verificacion FASE12-LONGPRESS fallo en gdkandroidevents.c" >&2; exit 1; }
   grep -q 'AMOTION_EVENT_TOOL_TYPE_FINGER' "$src/gdk/android/gdkandroidevents.c" \
-    || { echo "ERROR: verificacion FASE10 finger-motion fallo en gdkandroidevents.c" >&2; exit 1; }
+    || { echo "ERROR: verificacion FASE12 finger-motion fallo en gdkandroidevents.c" >&2; exit 1; }
   ! grep -q 'gdk_touch_event_new' "$src/gdk/android/gdkandroidevents.c" \
     || { echo "ERROR: queda gdk_touch_event_new sin parchear en gdkandroidevents.c" >&2; exit 1; }
-
-  # --- FASE 10B: touch slop (temblor del dedo tolerado) ---------------------
-  # Con el dedo emulado como raton, el minimo micro-movimiento del dedo al
-  # tocar (jitter) producia MOTION de 1-2 px que cancelaba clicks "sloppy"
-  # de GtkButton ("a veces hay que darle 2 veces") y arrancaba rubber-bands /
-  # select-boxes accidentales. Se ancla el motion al punto de press hasta
-  # superar ~8 css px (~8dp Android, ViewConfiguration.TOUCH_SLOP); a partir
-  # de ahi el dedo sigue la posicion real (drag/dibujo genuino).
-  python3 "$ROOT/patches/gtk4-touch-slop.py" "$src" \
-    || { echo "ERROR: parche FASE10B touch-slop no aplico en gtk 4.22.5" >&2; exit 1; }
-  grep -q 'FASE10B-SLOP' "$src/gdk/android/gdkandroidevents.c" \
-    || { echo "ERROR: verificacion FASE10B-SLOP fallo en gdkandroidevents.c" >&2; exit 1; }
-  grep -q 'g_touch_slop' "$src/gdk/android/gdkandroidevents.c" \
-    || { echo "ERROR: verificacion FASE10B g_touch_slop fallo en gdkandroidevents.c" >&2; exit 1; }
+  ! grep -q 'g_touch_slop\b' "$src/gdk/android/gdkandroidevents.c" \
+    || { echo "ERROR: FASE10B slop (g_touch_slop) sigue presente; FASE12 manda" >&2; exit 1; }
 
   # --- FASE 10C: fix NULL deref en el keymap android (crasheo al teclear) -----
   # Crash real (crash-stack.txt FASE8): TextTool::root_handler ->
