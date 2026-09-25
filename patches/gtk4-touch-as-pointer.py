@@ -118,16 +118,21 @@ NEW = [
     "          GdkAndroidSurface *target;",
     "          if (masked_action == AMOTION_EVENT_ACTION_DOWN)",
     "            {",
-    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f);",
+    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f, 0);",
+    "              /* defensa: el target debe ser el toplevel o un popup vivo. */",
+    "              if (target != NULL && target != toplevel && !GDK_IS_ANDROID_POPUP (target))",
+    "                target = toplevel;",
     "              g_touch_drag_surface = target;",
     "            }",
     "          else if (g_touch_drag_surface != NULL)",
     "            {",
     "              target = g_touch_drag_surface;",
+    "              if (target != toplevel && !GDK_IS_ANDROID_POPUP (target))",
+    "                target = toplevel;",
     "            }",
     "          else",
     "            {",
-    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f);",
+    "              target = gdk_android_surface_pick_child (toplevel, toplevel, x, y, 0.0f, 0.0f, 0);",
     "            }",
     "",
     "          switch (masked_action)",
@@ -138,6 +143,8 @@ NEW = [
     "                gfloat pcx = 0.0f, pcy = 0.0f;",
     "                if (target != toplevel)",
     "                  gdk_android_surface_popup_offset (target, toplevel, &pcx, &pcy);",
+    "                g_debug (\"FASE11C-DOWN target=%p [%s] ev=%.0f,%.0f\",",
+    "                         target, G_OBJECT_TYPE_NAME (target), x - pcx, y - pcy);",
     "                gdk_android_events_emit_button_press (AMOTION_EVENT_BUTTON_PRIMARY, state,",
     "                                                      GDK_BUTTON_PRIMARY,",
     "                                                      target, event, dev,",
@@ -233,11 +240,31 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
                                 gfloat             x,
                                 gfloat             y,
                                 gfloat             rx,
-                                gfloat             ry)
+                                gfloat             ry,
+                                guint              depth)
 {
+  if (depth > 8)
+    {
+      g_critical ("FASE11C-PICK: profundidad excesiva (%u) en %p [%s]",
+                  depth, node, G_OBJECT_TYPE_NAME (node));
+      return NULL;
+    }
+
+  g_debug ("FASE11C-PICK [%s] %p children=%u xy=%.0f,%.0f",
+           G_OBJECT_TYPE_NAME (node), node,
+           g_list_length (GDK_SURFACE (node)->children), x, y);
+
   for (GList *l = GDK_SURFACE (node)->children; l != NULL; l = l->next)
     {
       GdkAndroidSurface *child = l->data;
+
+      /* Defensa anti-dangling: solo popups vivos y cuyo parent sea node.
+       * La lista children del backend puede contener entradas de popups ya
+       * finalizados (no siempre se retiran al re-parentar/ocultar). */
+      if (child == NULL || !GDK_IS_ANDROID_POPUP (child))
+        continue;
+      if (GDK_SURFACE (child)->parent != (GdkSurface *) node)
+        continue;
       if (!child->visible)
         continue;
 
@@ -247,12 +274,15 @@ gdk_android_surface_pick_child (GdkAndroidSurface *toplevel,
       gfloat cw = popup->popup_bounds.width;
       gfloat ch = popup->popup_bounds.height;
 
+      g_debug ("FASE11C-PICK  cand=%p [%s] vis=%d rect=%.0f,%.0f %.0fx%.0f",
+               child, G_OBJECT_TYPE_NAME (child), child->visible, cx, cy, cw, ch);
+
       if (cw <= 0.0f || ch <= 0.0f)
         continue;
 
       if (x >= cx && x < cx + cw && y >= cy && y < cy + ch)
         {
-          GdkAndroidSurface *inner = gdk_android_surface_pick_child (toplevel, child, x, y, cx, cy);
+          GdkAndroidSurface *inner = gdk_android_surface_pick_child (toplevel, child, x, y, cx, cy, depth + 1);
           if (inner != NULL)
             return inner;
           return child;
